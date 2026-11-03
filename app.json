@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "Habits Tracker",
+    "slug": "habits-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "platforms": [
+      "android",
+      "web"
+    ],
+    "android": {
+      "package": "com.andre.habitstracker"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-splash-screen"
+    ]
+  }
+}
