@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Alert, Platform } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Alert, AppState, Platform, Text } from "react-native";
 import { Nunito_400Regular, Nunito_600SemiBold, Nunito_700Bold, Nunito_800ExtraBold } from "@expo-google-fonts/nunito";
 import { useFonts } from "expo-font";
 import * as DocumentPicker from "expo-document-picker";
@@ -14,8 +14,11 @@ import { DashboardTab } from "./src/Tabs/DashboardTab";
 import { ExpensesTab } from "./src/Tabs/ExpensesTab";
 import { GoodHabitsTab } from "./src/Tabs/GoodHabitsTab";
 import { ShoppingListTab } from "./src/Tabs/ShoppingListTab";
-import { loadTrackerEntries, mergeTrackerEntries, parseTrackerBackup, saveTrackerEntries } from "./src/Resources/trackerStorage";
-import type { ActionMenuItem, TabId, TrackerEntry, TrackerEntryType } from "./src/Resources/types";
+import { getLocalDateKey, loadTrackerSnapshot, mergeTrackerSnapshot, parseTrackerBackup, saveTrackerSnapshot } from "./src/Resources/trackerStorage";
+import { applyExpenseAction, emptyExpenseBook } from "./src/Resources/expenseLedger";
+import { updateChore } from "./src/Resources/choreSchedule";
+import { syncChoreReminders } from "./src/Resources/choreReminders";
+import type { ActionMenuItem, ChoreAction, ExpenseAction, ExpenseBook, HabitAction, HabitEntryType, TabId, TrackerEntry, TrackerEntryType, TrackerSnapshot } from "./src/Resources/types";
 
 // Keep the launch screen visible until the rounded font faces are ready.
 void SplashScreen.preventAutoHideAsync();
@@ -25,17 +28,34 @@ export default function App() {
   // Wait for Nunito before rendering so the native system font never flashes first.
   const [fontsLoaded] = useFonts({ Nunito_400Regular, Nunito_600SemiBold, Nunito_700Bold, Nunito_800ExtraBold });
   const [entries, setEntries] = useState<TrackerEntry[]>([]);
+  // Financial data shares the same snapshot and write lock as all tracker entries.
+  const [expenses, setExpenses] = useState<ExpenseBook>(emptyExpenseBook);
+  const expensesRef = useRef<ExpenseBook>(emptyExpenseBook());
   const [entriesLoaded, setEntriesLoaded] = useState(false);
+  // Use the latest persisted snapshot and reject overlapping writes across tracker actions.
+  const entriesRef = useRef<TrackerEntry[]>([]);
+  const savingRef = useRef(false);
+  const [storageError, setStorageError] = useState("");
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [menuVisible, setMenuVisible] = useState(false);
   const [addModalVisible, setAddModalVisible] = useState(false);
+  // Reuse the same creation dialog for Dashboard and the Good Habits section.
+  const [addEntryType, setAddEntryType] = useState<TrackerEntryType>();
+  // Reminder delivery is device-specific; saved plans remain portable between browser and Android.
+  const [reminderNotice, setReminderNotice] = useState<string>();
 
   // Load saved entries before allowing writes so startup cannot replace stored data.
   useEffect(() => {
     let mounted = true;
-    loadTrackerEntries()
-      .then((savedEntries) => { if (mounted) setEntries(savedEntries); })
-      .catch(() => { if (mounted) setEntries([]); })
+    loadTrackerSnapshot()
+      .then((saved) => {
+        if (mounted) {
+          entriesRef.current = saved.entries; setEntries(saved.entries);
+          expensesRef.current = saved.expenses; setExpenses(saved.expenses);
+        }
+      })
+      // Stop on failed reads so an empty screen cannot overwrite existing completion history.
+      .catch(() => { if (mounted) setStorageError("Saved data could not be loaded. Reload the app to try again. Your saved data has not been changed."); })
       .finally(() => { if (mounted) setEntriesLoaded(true); });
     return () => { mounted = false; };
   }, []);
@@ -44,7 +64,46 @@ export default function App() {
     if (fontsLoaded && entriesLoaded) void SplashScreen.hideAsync();
   }, [entriesLoaded, fontsLoaded]);
 
+  // Keep local alarms reconciled across all tabs, after import, on resume, and while the browser is open.
+  useEffect(() => {
+    if (!entriesLoaded || storageError) return;
+    let mounted = true;
+    let busy = false;
+    const refresh = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const notice = await syncChoreReminders(entriesRef.current);
+        if (mounted) setReminderNotice(notice);
+      } catch { if (mounted) setReminderNotice("Reminders could not be updated. Your schedules are still saved."); }
+      finally { busy = false; }
+    };
+    void refresh();
+    const timer = setInterval(() => { void refresh(); }, 30000);
+    const subscription = AppState.addEventListener("change", (state) => { if (state === "active") void refresh(); });
+    return () => { mounted = false; clearInterval(timer); subscription.remove(); };
+  }, [entries, entriesLoaded, storageError]);
+
   if (!fontsLoaded || !entriesLoaded) return null;
+  if (storageError) return <Text accessibilityRole="alert">{storageError}</Text>;
+
+  // Commit each complete snapshot before exposing it to checklist, creation, or import actions.
+  const persistSnapshot = async (update: (current: TrackerSnapshot) => TrackerSnapshot) => {
+    if (savingRef.current) throw new Error("Another change is being saved. Please try again.");
+    savingRef.current = true;
+    try {
+      const next = update({ entries: entriesRef.current, expenses: expensesRef.current });
+      await saveTrackerSnapshot(next);
+      entriesRef.current = next.entries; expensesRef.current = next.expenses;
+      setEntries(next.entries); setExpenses(next.expenses);
+    } finally {
+      savingRef.current = false;
+    }
+  };
+
+  // Habit, chore, and name changes preserve the latest financial ledger automatically.
+  const persistEntries = (update: (current: TrackerEntry[]) => TrackerEntry[]) =>
+    persistSnapshot((current) => ({ ...current, entries: update(current.entries) }));
 
   // Keep platform messages native on Android and simple browser dialogs on web.
   const showBackupMessage = (title: string, message: string) => {
@@ -57,9 +116,11 @@ export default function App() {
     try {
       const backup = {
         app: "habits-tracker" as const,
-        formatVersion: 1 as const,
+        // Version 5 includes category assignments, payment history, and effective-dated income amounts.
+        formatVersion: 5 as const,
         exportedAt: new Date().toISOString(),
-        entries,
+        entries: entriesRef.current,
+        expenses: expensesRef.current,
       };
       const backupText = `${JSON.stringify(backup, null, 2)}\n`;
       const filename = `habits-tracker-${new Date().toISOString().slice(0, 10)}.json`;
@@ -100,9 +161,8 @@ export default function App() {
         ? await asset.file.text()
         : await FileSystem.readAsStringAsync(asset.uri);
       const backup = parseTrackerBackup(JSON.parse(backupText) as unknown);
-      const mergedEntries = mergeTrackerEntries(entries, backup.entries);
-      await saveTrackerEntries(mergedEntries);
-      setEntries(mergedEntries);
+      // Merge against the latest data even if habits changed while the file picker was open.
+      await persistSnapshot((current) => mergeTrackerSnapshot(current, backup));
       showBackupMessage("Import complete", `${backup.entries.length} saved entries were merged into this device.`);
     } catch (error) {
       showBackupMessage("Import failed", error instanceof Error ? error.message : "The backup could not be imported. Your saved data was left unchanged.");
@@ -111,7 +171,10 @@ export default function App() {
 
   const handleAction = (action: ActionMenuItem) => {
     setMenuVisible(false);
-    if (action === "add") setAddModalVisible(true);
+    if (action === "add") {
+      setAddEntryType(undefined);
+      setAddModalVisible(true);
+    }
     else if (action === "import") void handleImport();
     else void handleExport();
   };
@@ -123,26 +186,77 @@ export default function App() {
       name,
       type,
     };
-    const nextEntries = [...entries, entry];
-    await saveTrackerEntries(nextEntries);
-    setEntries(nextEntries);
-    setAddModalVisible(false);
+    // Let the creation form show success and accept another name until explicitly closed.
+    await persistEntries((current) => [...current, entry]);
+  };
+
+  // Keep good and bad history independent while applying the same local-day actions to both.
+  const handleHabitUpdate = async (type: HabitEntryType, id: string, action: HabitAction) => {
+    const trackingField = type === "goodHabit" ? "goodHabitTracking" : "badHabitTracking";
+    await persistEntries((current) => {
+      if (!current.some((entry) => entry.id === id && entry.type === type)) {
+        throw new Error("This habit is no longer available.");
+      }
+      const today = getLocalDateKey(new Date());
+      return current.map((entry) => {
+        if (entry.id !== id) return entry;
+        const tracking = entry[trackingField] ?? { active: false, completedDates: [] };
+        if (action === "toggleDone" && !tracking.active) {
+          throw new Error("Add this habit to your daily list before recording it.");
+        }
+        return {
+          ...entry,
+          [trackingField]: {
+            active: action === "add" ? true : action === "remove" ? false : tracking.active,
+            completedDates: action !== "toggleDone" ? tracking.completedDates
+              : tracking.completedDates.includes(today)
+                ? tracking.completedDates.filter((date) => date !== today)
+                : [...tracking.completedDates, today].sort(),
+          },
+        };
+      });
+    });
+  };
+
+  // Apply chore changes to the latest snapshot and expose them only after a successful write.
+  const handleChoreUpdate = async (id: string, action: ChoreAction) => {
+    await persistEntries((current) => {
+      if (!current.some((entry) => entry.id === id && entry.type === "chore")) throw new Error("This chore is no longer available.");
+      const today = getLocalDateKey(new Date());
+      return current.map((entry) => entry.id === id ? updateChore(entry, action, today) : entry);
+    });
   };
 
   const screen = (() => {
     switch (activeTab) {
       case "goodHabits":
-        return <GoodHabitsTab entries={entries.filter((entry) => entry.type === "goodHabit")} />;
+        return (
+          <GoodHabitsTab
+            entries={entries.filter((entry) => entry.type === "goodHabit")}
+            onCreate={() => { setAddEntryType("goodHabit"); setAddModalVisible(true); }}
+            onUpdate={(id, action) => handleHabitUpdate("goodHabit", id, action)}
+          />
+        );
       case "badHabits":
-        return <BadHabitsTab entries={entries.filter((entry) => entry.type === "badHabit")} />;
+        return (
+          <BadHabitsTab
+            entries={entries.filter((entry) => entry.type === "badHabit")}
+            onCreate={() => { setAddEntryType("badHabit"); setAddModalVisible(true); }}
+            onUpdate={(id, action) => handleHabitUpdate("badHabit", id, action)}
+          />
+        );
       case "expenses":
-        return <ExpensesTab entries={entries.filter((entry) => entry.type === "expenseType")} />;
+        return <ExpensesTab entries={entries.filter((entry) => entry.type === "expenseType")} book={expenses}
+          onUpdate={(action: ExpenseAction) => persistSnapshot((current) => applyExpenseAction(current, action, getLocalDateKey(new Date())))} />;
       case "chores":
-        return <ChoresTab entries={entries.filter((entry) => entry.type === "chore")} />;
+        return <ChoresTab entries={entries.filter((entry) => entry.type === "chore")}
+          onCreate={() => { setAddEntryType("chore"); setAddModalVisible(true); }}
+          onUpdate={handleChoreUpdate} reminderNotice={reminderNotice} />;
       case "shopping":
         return <ShoppingListTab />;
       default:
-        return <DashboardTab />;
+        // Dashboard totals follow saved completions rather than the number of habit definitions.
+        return <DashboardTab entries={entries} expenses={expenses} />;
     }
   })();
 
@@ -159,6 +273,8 @@ export default function App() {
         {screen}
       </AppShell>
       <AddEntryModal
+        fixedType={addEntryType}
+        key={addEntryType ?? "all"}
         onClose={() => setAddModalVisible(false)}
         onSave={handleAdd}
         visible={addModalVisible}

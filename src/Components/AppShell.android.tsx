@@ -1,6 +1,7 @@
 import type { PropsWithChildren } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ActionMenu } from "./ActionMenu";
+import { ScrollArea } from "./ScrollArea";
 import { SectionIcon } from "./SectionIcon";
 import { COLORS, SURFACE_SHADOW } from "../Resources/theme";
 import { FONT_FAMILY } from "../Resources/typography";
@@ -54,9 +55,10 @@ export function AppShell(props: PropsWithChildren<AppShellProps>) {
         ) : null}
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      {/* Keep Android swipe scrolling alongside the shared custom scrollbar controls. */}
+      <ScrollArea contentContainerStyle={styles.content} scrollLabel="page content">
         {children}
-      </ScrollView>
+      </ScrollArea>
 
       <View style={[styles.bottomBar, SURFACE_SHADOW]}>
         {NAV_ITEMS.map((item) => {

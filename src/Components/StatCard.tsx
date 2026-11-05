@@ -1,5 +1,5 @@
 import { LinearGradient } from "expo-linear-gradient";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SectionIcon } from "./SectionIcon";
 import { COLORS, GRADIENTS, SURFACE_SHADOW } from "../Resources/theme";
 import type { StatMetric } from "../Resources/types";
@@ -9,28 +9,46 @@ type StatCardProps = {
   title: string;
   metrics: StatMetric[];
   tone: "teal" | "forest";
+  // Selected totals can open their details through the same shared metric tile.
+  metricActions?: Record<string, () => void>;
 };
 
 // Dashboard cards reuse the clay section icons to pair totals with clear visual cues.
-export function StatCard({ title, metrics, tone }: StatCardProps) {
+export function StatCard({ title, metrics, tone, metricActions }: StatCardProps) {
   return (
     <View style={[styles.card, SURFACE_SHADOW]}>
       <LinearGradient colors={GRADIENTS[tone]} style={styles.titlePill}>
         <Text style={styles.title}>{title}</Text>
       </LinearGradient>
       <View style={styles.metrics}>
-        {metrics.map((metric, index) => (
-          <View
-            accessibilityLabel={`${metric.label}: ${metric.value}`}
-            key={metric.id}
-            style={[styles.metric, index > 0 && styles.metricBorder]}
-          >
-            <View style={styles.iconSlot}>
-              <SectionIcon name={metric.icon} size={48} />
+        {metrics.map((metric, index) => {
+          const onPress = metricActions?.[metric.id];
+          const metricStyle = [styles.metric, index > 0 && styles.metricBorder];
+          const content = (
+            <>
+              <View style={styles.iconSlot}>
+                <SectionIcon name={metric.icon} size={48} />
+              </View>
+              <Text numberOfLines={1} style={styles.value}>{metric.value}</Text>
+            </>
+          );
+          return onPress ? (
+            <Pressable
+              // Chores shares the breakdown action without announcing it as a habit.
+              accessibilityLabel={`${metric.label}: ${metric.value}, view recorded counts`}
+              accessibilityRole="button"
+              key={metric.id}
+              onPress={onPress}
+              style={({ pressed }) => [...metricStyle, pressed && styles.metricPressed]}
+            >
+              {content}
+            </Pressable>
+          ) : (
+            <View accessibilityLabel={`${metric.label}: ${metric.value}`} key={metric.id} style={metricStyle}>
+              {content}
             </View>
-            <Text numberOfLines={1} style={styles.value}>{metric.value}</Text>
-          </View>
-        ))}
+          );
+        })}
       </View>
     </View>
   );
@@ -66,6 +84,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
     paddingHorizontal: 5,
   },
+  metricPressed: { backgroundColor: COLORS.mutedSurface, borderRadius: 14 },
   metricBorder: { borderLeftColor: COLORS.divider, borderLeftWidth: 1 },
   iconSlot: {
     alignItems: "center",

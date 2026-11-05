@@ -9,10 +9,12 @@ type DatePickerProps = {
   label: string;
   value: Date;
   onChange: (date: Date) => void;
+  // Bounded planning dialogs can scroll around the calendar rather than clipping it.
+  inlineCalendar?: boolean;
 };
 
 // This date picker pairs the shared calendar with its matching clay icon.
-export function DatePicker({ label, value, onChange }: DatePickerProps) {
+export function DatePicker({ label, value, onChange, inlineCalendar = false }: DatePickerProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -24,11 +26,12 @@ export function DatePicker({ label, value, onChange }: DatePickerProps) {
         onPress={() => setOpen((current) => !current)}
         style={[styles.field, SOFT_SHADOW]}
       >
-        <Text style={styles.value}>{value.toLocaleDateString()}</Text>
+        {/* Keep scheduling dates in the same European format as the tracker headers. */}
+        <Text style={styles.value}>{value.toLocaleDateString("en-GB")}</Text>
         <SectionIcon name="calendar" size={22} />
       </Pressable>
       {open ? (
-        <View style={styles.calendar}>
+        <View style={[styles.calendar, inlineCalendar && styles.inlineCalendar]}>
           <Calendar value={value} onChange={(date) => { onChange(date); setOpen(false); }} />
         </View>
       ) : null}
@@ -53,4 +56,5 @@ const styles = StyleSheet.create({
   },
   value: { color: COLORS.primary, fontFamily: FONT_FAMILY.regular, fontSize: 16 },
   calendar: { left: 0, position: "absolute", right: 0, top: 80, zIndex: 10 },
+  inlineCalendar: { position: "relative", top: 0 },
 });

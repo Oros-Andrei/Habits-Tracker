@@ -1,13 +1,23 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { SectionIcon } from "./SectionIcon";
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { SectionIcon, type SectionIconName } from "./SectionIcon";
 import { COLORS, SOFT_SHADOW } from "../Resources/theme";
 import type { ActionMenuItem } from "../Resources/types";
 import { FONT_FAMILY } from "../Resources/typography";
 
+// Custom actions let tracker sections reuse the Dashboard popup without exposing backup actions.
+type CustomAction = {
+  id: string;
+  label: string;
+  icon: SectionIconName;
+  onPress: () => void;
+};
+
 type ActionMenuProps = {
   visible: boolean;
-  showAdd: boolean;
-  onAction: (action: ActionMenuItem) => void;
+  showAdd?: boolean;
+  onAction?: (action: ActionMenuItem) => void;
+  actions?: CustomAction[];
+  menuStyle?: StyleProp<ViewStyle>;
 };
 
 const ACTIONS: { id: ActionMenuItem; label: string; icon: "add" | "import" | "export" }[] = [
@@ -17,25 +27,28 @@ const ACTIONS: { id: ActionMenuItem; label: string; icon: "add" | "import" | "ex
 ];
 
 // Larger clay arrows keep the JSON backup directions clear in the popup.
-export function ActionMenu({ visible, showAdd, onAction }: ActionMenuProps) {
+export function ActionMenu({ visible, showAdd = true, onAction, actions, menuStyle }: ActionMenuProps) {
   if (!visible) return null;
 
-  const visibleActions = ACTIONS.filter((action) => showAdd || action.id !== "add");
+  const visibleActions = actions ?? ACTIONS
+    .filter((action) => showAdd || action.id !== "add")
+    .map((action) => ({ ...action, onPress: () => onAction?.(action.id) }));
 
   return (
-    <View accessibilityRole="menu" style={[styles.menu, SOFT_SHADOW]}>
+    <View accessibilityRole="menu" style={[styles.menu, SOFT_SHADOW, menuStyle]}>
       {visibleActions.map((action) => (
         <Pressable
           accessibilityRole="menuitem"
           key={action.id}
-          onPress={() => onAction(action.id)}
+          onPress={action.onPress}
           style={({ pressed }) => [styles.row, pressed && styles.pressed]}
         >
           <View style={styles.iconSlot}>
             <SectionIcon name={action.icon} size={26} />
           </View>
           <Text style={styles.label}>{action.label}</Text>
-          {action.id === "add" ? (
+          {/* Custom habit actions open dialogs directly, so they do not need a submenu arrow. */}
+          {!actions && action.id === "add" ? (
             <View style={styles.chevronSlot}>
               <SectionIcon name="chevronRight" size={18} />
             </View>

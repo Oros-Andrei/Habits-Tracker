@@ -1,6 +1,7 @@
 import { useEffect, useRef, type PropsWithChildren } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ActionMenu } from "./ActionMenu";
+import { ScrollArea } from "./ScrollArea";
 import { SectionIcon } from "./SectionIcon";
 import { COLORS, SOFT_SHADOW, SURFACE_SHADOW } from "../Resources/theme";
 import { FONT_FAMILY } from "../Resources/typography";
@@ -70,7 +71,8 @@ export function AppShell(props: PropsWithChildren<AppShellProps>) {
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content}>
+        {/* Reuse the transparent custom scrollbar for browser page content. */}
+        <ScrollArea contentContainerStyle={styles.content} scrollLabel="page content">
           <View style={styles.header}>
             <View style={styles.headerStart}>
               {/* Keep creation and backup actions in the Dashboard header only. */}
@@ -87,7 +89,7 @@ export function AppShell(props: PropsWithChildren<AppShellProps>) {
             </View>
           </View>
           {children}
-        </ScrollView>
+        </ScrollArea>
       </View>
     </View>
   );

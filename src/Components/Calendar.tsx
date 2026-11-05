@@ -1,19 +1,27 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SectionIcon } from "./SectionIcon";
 import { COLORS, SOFT_SHADOW } from "../Resources/theme";
 import { FONT_FAMILY } from "../Resources/typography";
+import { getLocalDateKey } from "../Resources/trackerStorage";
 
 type CalendarProps = {
   value: Date;
   onChange: (date: Date) => void;
+  // Optional counts let the habit calendar share the existing date-picker grid.
+  dayCounts?: Record<string, number>;
+  // Category-specific labels let both habit tabs share one accessible calendar.
+  countLabel?: string;
+  // Planners derive counts for the visible month, including its neighboring date cells.
+  onMonthChange?: (month: Date) => void;
 };
 
 const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
 
 // Clay chevrons keep month navigation aligned with the shared date controls.
-export function Calendar({ value, onChange }: CalendarProps) {
+export function Calendar({ value, onChange, dayCounts, countLabel = "habits completed", onMonthChange }: CalendarProps) {
   const [visibleMonth, setVisibleMonth] = useState(() => new Date(value.getFullYear(), value.getMonth(), 1));
+  useEffect(() => { onMonthChange?.(visibleMonth); }, [visibleMonth, onMonthChange]);
   const days = useMemo(() => {
     const first = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1);
     const mondayOffset = (first.getDay() + 6) % 7;
@@ -46,19 +54,24 @@ export function Calendar({ value, onChange }: CalendarProps) {
         {days.map((day) => {
           const inMonth = day.getMonth() === visibleMonth.getMonth();
           const selected = day.toDateString() === value.toDateString();
+          const count = dayCounts?.[getLocalDateKey(day)] ?? 0;
           return (
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel={`${day.toLocaleDateString()}${dayCounts ? `, ${count} ${countLabel}` : ""}`}
               accessibilityState={{ selected }}
               key={day.toISOString()}
               onPress={() => onChange(day)}
-              style={styles.dayCell}
+              style={[styles.dayCell, dayCounts !== undefined && styles.historyDayCell]}
             >
               <View style={[styles.dayCircle, selected && styles.selectedDay]}>
                 <Text style={[styles.day, !inMonth && styles.outsideMonth, selected && styles.selectedText]}>
                   {day.getDate()}
                 </Text>
               </View>
+              {dayCounts !== undefined ? (
+                <Text style={styles.count}>{count > 0 ? count : " "}</Text>
+              ) : null}
             </Pressable>
           );
         })}
@@ -82,6 +95,9 @@ const styles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap" },
   weekday: { color: COLORS.mutedText, fontFamily: FONT_FAMILY.bold, fontSize: 12, paddingVertical: 7, textAlign: "center", width: `${100 / 7}%` },
   dayCell: { alignItems: "center", justifyContent: "center", paddingVertical: 2, width: `${100 / 7}%` },
+  // Give completion counts their own space without changing compact date pickers.
+  historyDayCell: { minHeight: 64 },
+  count: { color: COLORS.secondary, fontFamily: FONT_FAMILY.bold, fontSize: 12 },
   dayCircle: { alignItems: "center", borderRadius: 999, height: 34, justifyContent: "center", width: 34 },
   selectedDay: { backgroundColor: COLORS.secondary },
   day: { color: COLORS.primary, fontFamily: FONT_FAMILY.medium, fontSize: 13 },

@@ -1,11 +1,14 @@
 import type { ReactNode } from "react";
+import { Image, View } from "react-native";
 import { Circle, G, Path, Rect, Svg } from "react-native-svg";
 import type { TabId } from "../Resources/types";
 
 export type SectionIconName =
   | TabId
   | "add"
+  | "check"
   | "close"
+  | "removeHabit"
   | "options"
   | "save"
   | "import"
@@ -21,7 +24,22 @@ type SectionIconProps = {
   size?: number;
 };
 
-const ICONS: Record<SectionIconName, ReactNode> = {
+// Habit and chore characters use the approved artwork; other shared icons remain vectors.
+const HABIT_CHARACTERS = require("../Resources/habit-characters.png");
+const CHORE_CHARACTER = require("../Resources/chore-character.png");
+// Bundle the selected expense and shopping characters for consistent offline icons.
+const EXPENSE_CHARACTER = require("../Resources/expense-character.png");
+const SHOPPING_CHARACTER = require("../Resources/shopping-character.png");
+// Keep the selected Dashboard character bundled alongside the matching section artwork.
+const DASHBOARD_CHARACTER = require("../Resources/dashboard-character.png");
+const ICONS: Record<Exclude<SectionIconName, "goodHabits" | "badHabits" | "chores" | "expenses" | "shopping" | "dashboard">, ReactNode> = {
+  // Reuse a clear clay checkmark inside shared checkbox controls.
+  check: (
+    <G>
+      <Path d="m5 12 4 4 10-10" fill="none" stroke="#006B73" strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round" transform="translate(0 1)" />
+      <Path d="m5 12 4 4 10-10" fill="none" stroke="#FFFDF8" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+    </G>
+  ),
   // Keep the clay layers and outline the floppy silhouette without a separate frame.
   save: (
     <G>
@@ -58,6 +76,18 @@ const ICONS: Record<SectionIconName, ReactNode> = {
       <Circle cx={12} cy={13} r={10.5} fill="#2B1A22" />
       <Circle cx={12} cy={11.5} r={10.5} fill="#38242E" />
       <Path d="m8.5 8 7 7m0-7-7 7" fill="none" stroke="#FFFDF8" strokeWidth={2.2} strokeLinecap="round" />
+    </G>
+  ),
+  // Removing list membership keeps history, so use a list-minus rather than a close or trash mark.
+  removeHabit: (
+    <G>
+      <Rect x={3} y={4} width={14} height={18} rx={3} fill="#2B1A22" />
+      <Rect x={3} y={2.5} width={14} height={18} rx={3} fill="#38242E" />
+      <Path d="M6 7h7M6 11h5M6 15h3" fill="none" stroke="#FFFDF8" strokeWidth={1.5} strokeLinecap="round" />
+      <Circle cx={17} cy={17.5} r={6} fill="#006B73" />
+      <Circle cx={17} cy={16.5} r={6} fill="#008897" />
+      <Path d="M14 16.5h6" stroke="#FFFDF8" strokeWidth={2} strokeLinecap="round" />
+      <Path d="M5 4h7" stroke="#FFFDF8" strokeWidth={1} strokeLinecap="round" opacity={0.35} />
     </G>
   ),
   add: (
@@ -123,70 +153,28 @@ const ICONS: Record<SectionIconName, ReactNode> = {
       <Path d="m10.5 5 7 7-7 7" fill="none" stroke="#078665" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
     </G>
   ),
-  dashboard: (
-    <G>
-      <Rect x={3} y={4} width={8} height={8} rx={2} fill="#006B73" />
-      <Rect x={13} y={4} width={8} height={8} rx={2} fill="#05694F" />
-      <Rect x={3} y={14} width={8} height={8} rx={2} fill="#2B1A22" />
-      <Rect x={13} y={14} width={8} height={8} rx={2} fill="#1B2D24" />
-      <Rect x={3} y={3} width={8} height={8} rx={2} fill="#008897" />
-      <Rect x={13} y={3} width={8} height={8} rx={2} fill="#078665" />
-      <Rect x={3} y={13} width={8} height={8} rx={2} fill="#38242E" />
-      <Rect x={13} y={13} width={8} height={8} rx={2} fill="#24382B" />
-      <Path d="M4.5 4.5h4" stroke="#FFFDF8" strokeWidth={1} strokeLinecap="round" opacity={0.45} />
-      <Path d="M14.5 4.5h4" stroke="#FFFDF8" strokeWidth={1} strokeLinecap="round" opacity={0.45} />
-    </G>
-  ),
-  goodHabits: (
-    <G>
-      <Circle cx={12} cy={13} r={8.5} fill="#05694F" />
-      <Circle cx={12} cy={11} r={8.5} fill="#078665" />
-      <Path d="M6.7 7.5a7 7 0 0 1 8.8-2" fill="none" stroke="#FFFDF8" strokeWidth={1.2} strokeLinecap="round" opacity={0.4} />
-      <Path d="m7.5 11.2 3 3 6-6.4" fill="none" stroke="#FFFDF8" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
-    </G>
-  ),
-  badHabits: (
-    <G>
-      <Circle cx={12} cy={13} r={8.5} fill="#2B1A22" />
-      <Circle cx={12} cy={11} r={8.5} fill="#38242E" />
-      <Path d="M6.7 7.5a7 7 0 0 1 8.8-2" fill="none" stroke="#FFFDF8" strokeWidth={1.2} strokeLinecap="round" opacity={0.3} />
-      <Path d="m9 8 6 6m0-6-6 6" fill="none" stroke="#FFFDF8" strokeWidth={2.5} strokeLinecap="round" />
-    </G>
-  ),
-  expenses: (
-    <G>
-      <Path d="M4 8h14a2 2 0 0 1 2 2v8H5a2 2 0 0 1-2-2v-6a2 2 0 0 1 1-2Z" fill="#006B73" />
-      <Path d="M4 7h14a2 2 0 0 1 2 2v8H5a2 2 0 0 1-2-2V9a2 2 0 0 1 1-2Z" fill="#008897" />
-      <Path d="M5 8.5h11" stroke="#FFFDF8" strokeWidth={1} strokeLinecap="round" opacity={0.42} />
-      <Circle cx={16.5} cy={14} r={4} fill="#05694F" />
-      <Circle cx={16.5} cy={13} r={4} fill="#078665" />
-      <Path d="M15 13h3" stroke="#FFFDF8" strokeWidth={1.2} strokeLinecap="round" />
-    </G>
-  ),
-  chores: (
-    <G>
-      <Rect x={4} y={4} width={16} height={18} rx={2.5} fill="#1B2D24" />
-      <Rect x={4} y={3} width={16} height={18} rx={2.5} fill="#24382B" />
-      <Path d="m7 8 1.2 1.2L10 7.4m2.5 1h4" fill="none" stroke="#FFFDF8" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
-      <Path d="m7 13 1.2 1.2 1.8-1.8m2.5 1h4" fill="none" stroke="#FFFDF8" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
-      <Path d="M7 17h9" fill="none" stroke="#FFFDF8" strokeWidth={1.5} strokeLinecap="round" opacity={0.75} />
-      <Path d="M6 4.5h9" fill="none" stroke="#FFFDF8" strokeWidth={1} strokeLinecap="round" opacity={0.35} />
-    </G>
-  ),
-  shopping: (
-    <G>
-      <Path d="M8 9V6a4 4 0 0 1 8 0v3" fill="none" stroke="#006B73" strokeWidth={3} strokeLinecap="round" />
-      <Path d="M4 10h16l-1.5 10h-13L4 10Z" fill="#006B73" />
-      <Path d="M8 9V6a4 4 0 0 1 8 0v3" fill="none" stroke="#FFFDF8" strokeWidth={2.5} strokeLinecap="round" />
-      <Path d="M4 9h16l-1.5 10h-13L4 9Z" fill="#008897" />
-      <Path d="M9 12v5m3-5v5m3-5v5" fill="none" stroke="#FFFDF8" strokeWidth={1.6} strokeLinecap="round" opacity={0.85} />
-      <Path d="M6 10.5h12" fill="none" stroke="#FFFDF8" strokeWidth={1} strokeLinecap="round" opacity={0.4} />
-    </G>
-  ),
 };
 
 // Folded clay documents and opposing arrows clarify the JSON actions.
 export function SectionIcon({ name, size = 22 }: SectionIconProps) {
+  // Reuse the approved character artwork at every requested section icon size.
+  if (name === "chores" || name === "expenses" || name === "shopping" || name === "dashboard") {
+    const character = name === "dashboard" ? DASHBOARD_CHARACTER : name === "chores" ? CHORE_CHARACTER : name === "expenses" ? EXPENSE_CHARACTER : SHOPPING_CHARACTER;
+    return <Image accessible={false} pointerEvents="none" resizeMode="contain" source={character} style={{ width: size, height: size, flexShrink: 0 }} />;
+  }
+  // Each half of the transparent artwork supplies one character without changing icon sizing.
+  if (name === "goodHabits" || name === "badHabits") {
+    return (
+      <View pointerEvents="none" style={{ width: size, height: size, flexShrink: 0, overflow: "hidden" }}>
+        <Image
+          accessible={false}
+          resizeMode="contain"
+          source={HABIT_CHARACTERS}
+          style={{ width: size * 2, height: size, position: "absolute", top: 0, left: name === "goodHabits" ? 0 : -size }}
+        />
+      </View>
+    );
+  }
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       {ICONS[name]}

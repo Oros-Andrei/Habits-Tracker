@@ -1,24 +1,153 @@
-import { StyleSheet, Text, View } from "react-native";
-import { TrackerEntryList } from "../Components/TrackerEntryList";
-import { COLORS } from "../Resources/theme";
+import { useEffect, useRef, useState, type ComponentRef } from "react";
+import { AppState, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActionMenu } from "../Components/ActionMenu";
+import { Button } from "../Components/Button";
+import { Calendar } from "../Components/Calendar";
+import { ChorePlannerModal } from "../Components/ChorePlannerModal";
+import { choreDate, listChoreOccurrences, type ChoreOccurrence } from "../Resources/choreSchedule";
+import { getLocalDateKey } from "../Resources/trackerStorage";
+import { COLORS, SOFT_SHADOW } from "../Resources/theme";
 import { FONT_FAMILY } from "../Resources/typography";
-import type { TrackerEntry } from "../Resources/types";
+import type { ChoreAction, TrackerEntry } from "../Resources/types";
 
-type ChoresTabProps = { entries: TrackerEntry[] };
+type Props = {
+  entries: TrackerEntry[]; onCreate: () => void; onUpdate: (id: string, action: ChoreAction) => Promise<void>;
+  reminderNotice?: string;
+};
 
-// This tab reserves a dedicated space for the user's chores.
-export function ChoresTab({ entries }: ChoresTabProps) {
+// Match the requested three-column desktop layout and stack list, today, then calendar on Android.
+export function ChoresTab({ entries, onCreate, onUpdate, reminderNotice }: Props) {
+  const { width, height } = useWindowDimensions();
+  const columns = Platform.OS === "web" && width >= 1200;
+  const [today, setToday] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [visibleMonth, setVisibleMonth] = useState(() => new Date());
+  const [menu, setMenu] = useState(false);
+  const [position, setPosition] = useState({ left: 12, top: 12 });
+  const anchor = useRef<ComponentRef<typeof View>>(null);
+  const [dialog, setDialog] = useState<{ mode: "add" | "remove" | "schedule"; entryId?: string; date: Date }>();
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [error, setError] = useState("");
+  const todayKey = getLocalDateKey(today), selectedKey = getLocalDateKey(selectedDate);
+  const active = entries.filter((entry) => entry.choreTracking?.active);
+  // Only today's confirmed work belongs in the checklist; future plans stay in the calendar.
+  const todayItems = listChoreOccurrences(entries, todayKey, todayKey);
+  const preview = { includeEstimates: true, today: todayKey };
+  const selectedItems = listChoreOccurrences(entries, selectedKey, selectedKey, preview);
+  const first = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1, 12);
+  first.setDate(1 - (first.getDay() + 6) % 7);
+  const last = new Date(first); last.setDate(last.getDate() + 41);
+  const counts: Record<string, number> = {};
+  const calendarItems = listChoreOccurrences(entries, getLocalDateKey(first), getLocalDateKey(last), preview);
+  for (const item of calendarItems) counts[item.dueDate] = (counts[item.dueDate] ?? 0) + 1;
+
+  // Re-evaluate due dates at midnight and after resuming without carrying yesterday's checkmarks.
+  useEffect(() => {
+    const now = new Date();
+    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const timer = setTimeout(() => setToday(new Date()), tomorrow.getTime() - now.getTime() + 100);
+    const subscription = AppState.addEventListener("change", (state) => { if (state === "active") setToday(new Date()); });
+    return () => { clearTimeout(timer); subscription.remove(); };
+  }, [todayKey]);
+
+  const update = async (id: string, action: ChoreAction) => {
+    if (savingRef.current) return;
+    savingRef.current = true; setSaving(true); setError("");
+    try { await onUpdate(id, action); setToday(new Date()); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : "Could not save this change. Please try again."); }
+    finally { savingRef.current = false; setSaving(false); }
+  };
+  const plan = (entryId?: string, date = selectedDate) => { setMenu(false); setDialog({ mode: "schedule", entryId, date }); };
+  const openOptions = () => anchor.current?.measureInWindow((x, y, _width, buttonHeight) => {
+    setPosition({ left: x, top: y + buttonHeight + 8 }); setMenu(true);
+  });
+  const format = (key: string) => choreDate(key).toLocaleDateString("en-GB");
+  // The same dated occurrence is checked from Today and from the selected calendar date.
+  const occurrenceRow = (item: ChoreOccurrence) => (
+    <View key={`${item.entryId}:${item.key}`} style={[styles.row, item.completedDate && styles.done]}>
+      {/* Estimated dates describe future possibilities and cannot be checked off. */}
+      {!item.estimated ? <Button checked={!!item.completedDate} disabled={saving || item.dueDate > todayKey}
+        label={`${item.name}, due ${format(item.dueDate)}`} onPress={() => { void update(item.entryId, { type: "toggle", key: item.key, dueDate: item.dueDate }); }} /> : null}
+      <View style={styles.details}>
+        <Text style={styles.name}>{item.name}</Text>
+        <Text style={styles.note}>{item.completedDate ? `Done · ${format(item.completedDate)}` : `${item.estimated ? "Estimated" : item.dueDate < todayKey ? "Overdue" : "Due"} · ${format(item.dueDate)}${item.reminderTime ? ` · ${item.reminderTime}` : ""}`}</Text>
+      </View>
+    </View>
+  );
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Chores</Text>
-      {/* Show stored chores or a clear first-use hint. */}
-      <TrackerEntryList emptyMessage="No chores yet. Use + to add one." entries={entries} />
+    <View style={styles.page}>
+      <Modal animationType="none" transparent visible={menu} onRequestClose={() => setMenu(false)}>
+        <View style={styles.menuOverlay}>
+          <Pressable accessibilityLabel="Close chore options" accessibilityRole="button" onPress={() => setMenu(false)} style={StyleSheet.absoluteFill} />
+          <ActionMenu visible={menu} menuStyle={{ left: Math.max(12, Math.min(position.left, width - Math.min(320, width - 24) - 12)), top: Math.max(12, Math.min(position.top, height - 252)), minWidth: 0, width: Math.min(320, width - 24) }} actions={[
+            { id: "create", label: "Add a new chore", icon: "chores", onPress: () => { setMenu(false); onCreate(); } },
+            { id: "add", label: "Add a chore to the list", icon: "add", onPress: () => { setMenu(false); setDialog({ mode: "add", date: selectedDate }); } },
+            { id: "remove", label: "Remove a chore", icon: "removeHabit", onPress: () => { setMenu(false); setDialog({ mode: "remove", date: selectedDate }); } },
+            { id: "schedule", label: "Add a chore for a date", icon: "calendar", onPress: () => plan() },
+          ]} />
+        </View>
+      </Modal>
+      {dialog ? <ChorePlannerModal mode={dialog.mode} date={dialog.date} initialEntryId={dialog.entryId}
+        entries={dialog.mode === "remove" ? active : dialog.mode === "add" ? entries.filter((entry) => !entry.choreTracking?.active) : entries}
+        onClose={() => setDialog(undefined)} onSave={onUpdate} /> : null}
+      {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+      {reminderNotice ? <Text accessibilityRole="alert" style={styles.note}>{reminderNotice}</Text> : null}
+      <View style={[styles.layout, columns && styles.columns]}>
+        <View style={[styles.section, columns && styles.listColumn]}>
+          <View style={styles.heading}>
+            <Text style={styles.title}>My chores</Text>
+            <View ref={anchor} collapsable={false} style={styles.optionsAnchor}><Button disabled={saving} icon="options" iconOnly label="Chore options" onPress={openOptions} variant="secondary" /></View>
+          </View>
+          <Text style={styles.note}>Your active chore list</Text>
+          <View style={[styles.panel, SOFT_SHADOW]}>
+            {!active.length ? <Text style={styles.note}>No chores in your list yet. Use Options to add one.</Text> : null}
+            {/* The first list is a chore catalog with planning buttons, not a second checklist. */}
+            {active.map((entry) => (
+              <View key={entry.id} style={styles.row}>
+                <View style={styles.details}><Text style={styles.name}>{entry.name}</Text></View>
+                <Button disabled={saving} icon="calendar" iconOnly label={`Plan ${entry.name}`} onPress={() => plan(entry.id)} variant="secondary" />
+              </View>
+            ))}
+          </View>
+        </View>
+        <View style={[styles.section, columns && styles.listColumn]}>
+          <View style={styles.heading}><Text style={styles.title}>Chores for today</Text></View>
+          <Text style={styles.note}>Today · {today.toLocaleDateString("en-GB")}</Text>
+          <View style={[styles.panel, SOFT_SHADOW]}>
+            {!todayItems.length ? <Text style={styles.note}>No chores due today.</Text> : todayItems.map(occurrenceRow)}
+          </View>
+        </View>
+        <View style={[styles.section, columns && styles.calendarColumn]}>
+          <View style={styles.heading}><Text style={styles.title}>Calendar</Text></View>
+          <Text style={styles.note}>Choose a day to view or plan chores.</Text>
+          <Calendar value={selectedDate} onChange={setSelectedDate} onMonthChange={setVisibleMonth} dayCounts={counts} countLabel="planned or completed chores" />
+          {calendarItems.some((item) => item.estimated) || selectedItems.some((item) => item.estimated)
+            ? <Text style={styles.note}>Estimated repeat dates adjust when you complete the chore.</Text> : null}
+          <View style={[styles.panel, SOFT_SHADOW]}>
+            <Text style={styles.subtitle}>{selectedDate.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</Text>
+            {selectedItems.length ? selectedItems.map(occurrenceRow) : <Text style={styles.note}>No chores planned for this date.</Text>}
+            <View style={styles.actions}><Button icon="calendar" label="Add a chore for this date" onPress={() => plan()} /></View>
+          </View>
+        </View>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { backgroundColor: COLORS.surface, borderRadius: 24, gap: 8, padding: 22 },
-  // Apply shared Nunito styling to this tracker tab's title and copy.
+  // Shared clay surfaces and headings keep all three panels aligned with the habit pages.
+  page: { gap: 14 }, layout: { gap: 22 }, columns: { alignItems: "flex-start", flexDirection: "row" },
+  section: { gap: 12, minWidth: 0 }, listColumn: { flex: 1 }, calendarColumn: { flex: 1.8 },
+  heading: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: 12, minHeight: 36 },
+  optionsAnchor: { flexDirection: "row", width: 36 }, menuOverlay: { flex: 1 },
+  panel: { backgroundColor: COLORS.surface, borderRadius: 24, gap: 14, padding: 18 },
+  row: { alignItems: "center", backgroundColor: COLORS.background, borderRadius: 18, flexDirection: "row", gap: 6, padding: 10 },
+  done: { backgroundColor: COLORS.mutedSurface }, details: { flex: 1, gap: 5, minWidth: 0 }, actions: { flexDirection: "row", marginTop: 4 },
   title: { color: COLORS.primary, fontFamily: FONT_FAMILY.extraBold, fontSize: 21 },
+  subtitle: { color: COLORS.primary, fontFamily: FONT_FAMILY.bold, fontSize: 17 },
+  name: { color: COLORS.primary, fontFamily: FONT_FAMILY.bold, fontSize: 16 },
+  note: { color: COLORS.mutedText, fontFamily: FONT_FAMILY.regular, fontSize: 14 },
+  error: { color: COLORS.gradientPlum, fontFamily: FONT_FAMILY.medium, fontSize: 14 },
 });
