@@ -6,6 +6,9 @@ A personal tracker for habits, expenses, chores, and a shopping list. It should 
 
 The app uses Expo with React Native and React Native Web so it can target Android and the browser from one codebase. Platform-specific app shells provide different navigation layouts.
 
+For local Android builds on this Windows machine, `android/gradle.properties` pins `android.cmakeVersion=4.1.2`, the installed SDK CMake package containing Ninja 1.12.1. Windows long-path support (`LongPathsEnabled=1`) is also required; restart Windows after enabling it so Android Studio and Gradle use the new setting. After changing toolchains, stop native builds and remove only the generated `android/app/.cxx` and `android/app/build` caches before rebuilding. These settings address the SVG codegen mkdir/path-length failure, not the harmless Java deprecation warnings. Expo prebuild regeneration can replace native configuration, so retain this CMake setting if regenerating the Android project.
+The CMake pin was applied and both generated caches were cleared. Enabling the Windows registry setting was denied without administrator rights, and the administrator elevation request was not approved; `LongPathsEnabled` remains 0 and must be enabled by the user before restarting and rebuilding. A successful native rebuild has not yet been verified.
+
 ## Main sections
 
 - **Dashboard:** The front page, with statistics for the current month and calendar year.
