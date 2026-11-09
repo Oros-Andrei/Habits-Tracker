@@ -193,12 +193,13 @@ const styles = StyleSheet.create({
   calendarColumn: { flex: 2 },
   title: { color: COLORS.primary, fontFamily: FONT_FAMILY.extraBold, fontSize: 21 },
   subtitle: { color: COLORS.primary, fontFamily: FONT_FAMILY.bold, fontSize: 17 },
-  description: { color: COLORS.mutedText, fontFamily: FONT_FAMILY.regular, fontSize: 14 },
+  description: { color: COLORS.mutedText, fontFamily: FONT_FAMILY.regular, fontSize: Platform.OS === "android" ? 12 : 14 },
   // Keep the checkbox and wrapping habit details together in one horizontal row.
-  habit: { alignItems: "center", backgroundColor: COLORS.background, borderRadius: 18, flexDirection: "row", gap: 10, padding: 14 },
-  habitDetails: { flex: 1, gap: 6, minWidth: 0 },
+  habit: { alignItems: "center", backgroundColor: COLORS.background, borderRadius: 18, flexDirection: "row", gap: Platform.OS === "android" ? 9 : 10, padding: Platform.OS === "android" ? 10 : 14, ...(Platform.OS === "android" ? { paddingVertical: 5, minHeight: 54 } : {}) },
+  // Keep Android labels immediately beside the shared checkbox instead of adding vertical space.
+  habitDetails: { flex: 1, gap: Platform.OS === "android" ? 2 : 6, minWidth: 0 },
   completedHabit: { backgroundColor: COLORS.mutedSurface },
-  name: { color: COLORS.primary, fontFamily: FONT_FAMILY.bold, fontSize: 16 },
+  name: { color: COLORS.primary, fontFamily: FONT_FAMILY.bold, fontSize: Platform.OS === "android" ? 15 : 16 },
   history: { backgroundColor: COLORS.surface, borderRadius: 22, gap: 10, padding: 18 },
   error: { color: COLORS.gradientPlum, fontFamily: FONT_FAMILY.medium, fontSize: 14 },
 });

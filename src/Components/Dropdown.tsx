@@ -11,19 +11,24 @@ type DropdownProps = {
   options: (string | { label: string; value: string })[];
   value?: string;
   placeholder?: string;
+  // Financial forms freeze submitted selections while their snapshot is being saved.
+  disabled?: boolean;
   onChange: (value: string) => void;
 };
 
 // A clay chevron keeps option selection consistent across tracker forms.
-export function Dropdown({ label, options, value, placeholder = "Choose an option", onChange }: DropdownProps) {
+export function Dropdown({ label, options, value, placeholder = "Choose an option", disabled = false, onChange }: DropdownProps) {
   const [open, setOpen] = useState(false);
   // Measure a floating popup so opening options never resizes or gets clipped by its dialog.
   const triggerRef = useRef<ComponentRef<typeof View>>(null);
   const [anchor, setAnchor] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const { width, height } = useWindowDimensions();
   useEffect(() => setOpen(false), [width, height]);
+  useEffect(() => { if (disabled || options.length === 0) setOpen(false); }, [disabled, options.length]);
   const choices = options.map((option) => typeof option === "string" ? { label: option, value: option } : option);
   const selectedLabel = choices.find((option) => option.value === value)?.label;
+  // Removed choices must show the placeholder, never an internal ID or an empty popup.
+  const unavailable = disabled || choices.length === 0;
 
   const below = Math.max(0, height - anchor.y - anchor.height - 20);
   const above = Math.max(0, anchor.y - 20);
@@ -36,6 +41,7 @@ export function Dropdown({ label, options, value, placeholder = "Choose an optio
     bottom: openBelow ? undefined : height - anchor.y + 8,
   };
   const toggleOptions = () => {
+    if (unavailable) return;
     if (open) { setOpen(false); return; }
     triggerRef.current?.measureInWindow((x, y, measuredWidth, measuredHeight) => {
       setAnchor({ x, y, width: measuredWidth, height: measuredHeight });
@@ -48,17 +54,18 @@ export function Dropdown({ label, options, value, placeholder = "Choose an optio
       <Text style={styles.label}>{label}</Text>
       <Pressable
         accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
+        accessibilityState={{ expanded: open && !unavailable, disabled: unavailable }}
+        disabled={unavailable}
         onPress={toggleOptions}
         ref={triggerRef}
         style={[styles.trigger, SOFT_SHADOW]}
       >
-        <Text style={[styles.value, !value && styles.placeholder]}>{selectedLabel ?? value ?? placeholder}</Text>
+        <Text style={[styles.value, selectedLabel === undefined && styles.placeholder]}>{selectedLabel ?? placeholder}</Text>
         <View style={styles.chevronSlot}>
           <SectionIcon name={open ? "chevronUp" : "chevronDown"} size={18} />
         </View>
       </Pressable>
-      {open ? (
+      {open && !unavailable ? (
         <Modal animationType="none" onRequestClose={() => setOpen(false)} transparent visible>
           <View style={styles.popupOverlay}>
             {/* Use the field's label now that chore and frequency pickers share this dropdown. */}

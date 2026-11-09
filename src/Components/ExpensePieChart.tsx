@@ -11,8 +11,9 @@ export function ExpensePieChart({ records }: { records: ExpenseRecord[] }) {
   const total = groups.reduce((sum, item) => sum + item.amountBani, 0);
   let angle = -Math.PI / 2;
   return <View style={styles.chart}>
-    <Svg accessible accessibilityLabel={`Spending by category: ${groups.map((item) => `${item.name} ${formatLei(item.amountBani)}`).join(", ") || "No payments"}`}
-      width="100%" height={230} viewBox="0 0 240 240">
+    {/* View handles native accessibility props without forwarding them as invalid SVG attributes on web. */}
+    <View accessible accessibilityRole="image" accessibilityLabel={`Spending by category: ${groups.map((item) => `${item.name} ${formatLei(item.amountBani)}`).join(", ") || "No payments"}`}>
+    <Svg width="100%" height={230} viewBox="0 0 240 240">
       {!total ? <Circle cx={120} cy={120} r={104} fill={COLORS.mutedSurface} /> : groups.map((group) => {
         if (groups.length === 1) return <Circle key={group.id} cx={120} cy={120} r={104} fill={group.color} />;
         const start = angle; angle += group.amountBani / total * Math.PI * 2;
@@ -22,6 +23,7 @@ export function ExpensePieChart({ records }: { records: ExpenseRecord[] }) {
           fill={group.color} stroke={COLORS.surface} strokeWidth={2} />;
       })}
     </Svg>
+    </View>
     <Text style={styles.total}>{formatLei(total)} spent</Text>
     {groups.length ? groups.map((group) => <View key={group.id} style={styles.legend}>
       <View style={[styles.dot, { backgroundColor: group.color }]} />

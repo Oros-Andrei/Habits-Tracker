@@ -1,4 +1,7 @@
-import type { ViewStyle } from "react-native";
+import { Platform, type ViewStyle } from "react-native";
+
+// Match the approved Android cream-clay preview without changing the browser palette.
+const android = Platform.OS === "android";
 
 // Shared design tokens keep the Android and browser interfaces visually related.
 export const COLORS = {
@@ -7,11 +10,11 @@ export const COLORS = {
   gradientGreen: "#078665",
   gradientPlum: "#38242E",
   gradientForest: "#24382B",
-  background: "#F7F3EC",
-  surface: "#FFFDF8",
-  mutedSurface: "#EFF4F0",
+  background: android ? "#F6EDE6" : "#F7F3EC",
+  surface: android ? "#FFF7EF" : "#FFFDF8",
+  mutedSurface: android ? "#E8EEE4" : "#EFF4F0",
   mutedText: "#746E68",
-  divider: "#D7D1C8",
+  divider: android ? "#E1D4C8" : "#D7D1C8",
   white: "#FFFFFF",
 } as const;
 

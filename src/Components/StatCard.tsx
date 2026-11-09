@@ -1,5 +1,5 @@
 import { LinearGradient } from "expo-linear-gradient";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SectionIcon } from "./SectionIcon";
 import { COLORS, GRADIENTS, SURFACE_SHADOW } from "../Resources/theme";
 import type { StatMetric } from "../Resources/types";
@@ -11,25 +11,30 @@ type StatCardProps = {
   tone: "teal" | "forest";
   // Selected totals can open their details through the same shared metric tile.
   metricActions?: Record<string, () => void>;
+  // Both Android period cards receive one currency size for matching baselines and typography.
+  currencyFontSize?: number;
 };
 
 // Dashboard cards reuse the clay section icons to pair totals with clear visual cues.
-export function StatCard({ title, metrics, tone, metricActions }: StatCardProps) {
+export function StatCard({ title, metrics, tone, metricActions, currencyFontSize }: StatCardProps) {
+  const android = Platform.OS === "android";
   return (
-    <View style={[styles.card, SURFACE_SHADOW]}>
-      <LinearGradient colors={GRADIENTS[tone]} style={styles.titlePill}>
-        <Text style={styles.title}>{title}</Text>
+    <View style={[styles.card, SURFACE_SHADOW, android && styles.androidCard]}>
+      <LinearGradient colors={GRADIENTS[tone]} style={[styles.titlePill, android && styles.androidPill]}>
+        <Text style={[styles.title, android && styles.androidTitle]}>{title}</Text>
       </LinearGradient>
       <View style={styles.metrics}>
         {metrics.map((metric, index) => {
           const onPress = metricActions?.[metric.id];
-          const metricStyle = [styles.metric, index > 0 && styles.metricBorder];
+          const metricStyle = [styles.metric, index > 0 && styles.metricBorder, android && styles.androidMetric, android && metric.id === "expenses" && styles.androidCurrencyMetric];
           const content = (
             <>
               <View style={styles.iconSlot}>
                 <SectionIcon name={metric.icon} size={48} />
               </View>
-              <Text numberOfLines={1} style={styles.value}>{metric.value}</Text>
+              {/* Currency totals need room for decimals and lei in compact dashboard tiles. */}
+              <Text adjustsFontSizeToFit minimumFontScale={0.6} numberOfLines={1}
+                style={[styles.value, android && styles.androidValue, android && metric.id === "expenses" && { fontSize: currencyFontSize ?? 16 }]}>{metric.value}</Text>
             </>
           );
           return onPress ? (
@@ -94,4 +99,11 @@ const styles = StyleSheet.create({
     width: 48,
   },
   value: { color: COLORS.primary, fontFamily: FONT_FAMILY.extraBold, fontSize: 22 },
+  // Fixed icon/value slots keep all four metrics aligned while money has room for its unit.
+  androidCard: { minWidth: 0, padding: 12, borderColor: COLORS.surface, borderBottomColor: COLORS.divider },
+  androidPill: { borderRadius: 14, marginBottom: 12, minWidth: 145, paddingHorizontal: 16, paddingVertical: 6 },
+  androidTitle: { fontSize: 20 },
+  androidMetric: { justifyContent: "flex-start", minHeight: 82, paddingHorizontal: 4 },
+  androidCurrencyMetric: { flex: 1.45 },
+  androidValue: { height: 28, lineHeight: 28, textAlign: "center", textAlignVertical: "center", includeFontPadding: false, width: "100%" },
 });

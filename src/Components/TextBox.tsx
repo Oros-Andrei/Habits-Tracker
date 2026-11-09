@@ -8,11 +8,13 @@ type TextBoxProps = {
   value: string;
   placeholder?: string;
   helperText?: string;
+  // Saving forms can preserve exactly the submitted value until persistence finishes.
+  disabled?: boolean;
   onChangeText: (value: string) => void;
 };
 
 // This reusable field matches the approved rounded, softly raised input style.
-export function TextBox({ label, value, placeholder, helperText, onChangeText }: TextBoxProps) {
+export function TextBox({ label, value, placeholder, helperText, disabled = false, onChangeText }: TextBoxProps) {
   const [focused, setFocused] = useState(false);
 
   return (
@@ -20,6 +22,8 @@ export function TextBox({ label, value, placeholder, helperText, onChangeText }:
       <Text style={styles.label}>{label}</Text>
       <TextInput
         accessibilityLabel={label}
+        accessibilityState={{ disabled }}
+        editable={!disabled}
         onBlur={() => setFocused(false)}
         onChangeText={onChangeText}
         onFocus={() => setFocused(true)}

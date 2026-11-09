@@ -10,7 +10,9 @@
       "web"
     ],
     "android": {
-      "package": "com.andre.habitstracker"
+      "package": "com.andre.habitstracker",
+      "icon": "./src/Resources/app-launcher-badge.png",
+      "allowBackup": false
     },
     "web": {
       "bundler": "metro"

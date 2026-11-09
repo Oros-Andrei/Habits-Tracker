@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { SectionIcon, type SectionIconName } from "./SectionIcon";
 import { COLORS, SOFT_SHADOW } from "../Resources/theme";
 import type { ActionMenuItem } from "../Resources/types";
@@ -35,18 +35,18 @@ export function ActionMenu({ visible, showAdd = true, onAction, actions, menuSty
     .map((action) => ({ ...action, onPress: () => onAction?.(action.id) }));
 
   return (
-    <View accessibilityRole="menu" style={[styles.menu, SOFT_SHADOW, menuStyle]}>
+    <View accessibilityRole="menu" style={[styles.menu, SOFT_SHADOW, Platform.OS === "android" && styles.androidMenu, menuStyle]}>
       {visibleActions.map((action) => (
         <Pressable
           accessibilityRole="menuitem"
           key={action.id}
           onPress={action.onPress}
-          style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.row, Platform.OS === "android" && styles.androidRow, pressed && styles.pressed]}
         >
           <View style={styles.iconSlot}>
-            <SectionIcon name={action.icon} size={26} />
+            <SectionIcon name={action.icon} size={Platform.OS === "android" ? 28 : 26} />
           </View>
-          <Text style={styles.label}>{action.label}</Text>
+          <Text style={[styles.label, Platform.OS === "android" && styles.androidLabel]}>{action.label}</Text>
           {/* Custom habit actions open dialogs directly, so they do not need a submenu arrow. */}
           {!actions && action.id === "add" ? (
             <View style={styles.chevronSlot}>
@@ -87,4 +87,8 @@ const styles = StyleSheet.create({
   // Use the shared Nunito face for popup action labels.
   label: { color: COLORS.primary, flex: 1, fontFamily: FONT_FAMILY.medium, fontSize: 16 },
   chevronSlot: { alignItems: "center", justifyContent: "center", width: 24 },
+  // Android menus reuse the same clay artwork and compact horizontal rows as the approved preview.
+  androidMenu: { borderColor: COLORS.surface, gap: 8 },
+  androidRow: { backgroundColor: COLORS.background, gap: 8, minHeight: 48, paddingHorizontal: 10 },
+  androidLabel: { fontFamily: FONT_FAMILY.bold, fontSize: 14 },
 });

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SectionIcon } from "./SectionIcon";
 import { COLORS, SOFT_SHADOW } from "../Resources/theme";
 import { FONT_FAMILY } from "../Resources/typography";
@@ -86,7 +86,7 @@ const styles = StyleSheet.create({
     borderColor: "#EEE7DE",
     borderRadius: 22,
     borderWidth: 1,
-    padding: 14,
+    padding: Platform.OS === "android" ? 12 : 14,
   },
   header: { alignItems: "center", flexDirection: "row", justifyContent: "space-between", marginBottom: 10 },
   monthButton: { alignItems: "center", borderRadius: 14, height: 36, justifyContent: "center", width: 36 },
@@ -96,9 +96,10 @@ const styles = StyleSheet.create({
   weekday: { color: COLORS.mutedText, fontFamily: FONT_FAMILY.bold, fontSize: 12, paddingVertical: 7, textAlign: "center", width: `${100 / 7}%` },
   dayCell: { alignItems: "center", justifyContent: "center", paddingVertical: 2, width: `${100 / 7}%` },
   // Give completion counts their own space without changing compact date pickers.
-  historyDayCell: { minHeight: 64 },
-  count: { color: COLORS.secondary, fontFamily: FONT_FAMILY.bold, fontSize: 12 },
-  dayCircle: { alignItems: "center", borderRadius: 999, height: 34, justifyContent: "center", width: 34 },
+  // Compact native date cells retain counts while reducing the length of stacked Android screens.
+  historyDayCell: { minHeight: Platform.OS === "android" ? 44 : 64 },
+  count: { color: COLORS.secondary, fontFamily: FONT_FAMILY.bold, fontSize: Platform.OS === "android" ? 11 : 12, ...(Platform.OS === "android" ? { lineHeight: 11 } : {}) },
+  dayCircle: { alignItems: "center", borderRadius: 999, height: Platform.OS === "android" ? 28 : 34, justifyContent: "center", width: Platform.OS === "android" ? 28 : 34 },
   selectedDay: { backgroundColor: COLORS.secondary },
   day: { color: COLORS.primary, fontFamily: FONT_FAMILY.medium, fontSize: 13 },
   outsideMonth: { color: "#B7B0A8" },

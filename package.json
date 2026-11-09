@@ -6,7 +6,7 @@
   "scripts": {
     "start": "expo start",
     "dev": "expo start --web --localhost --port 8080",
-    "android": "expo start --android",
+    "android": "expo run:android",
     "web": "expo start --web"
   },
   "dependencies": {
@@ -21,6 +21,7 @@
     "expo-notifications": "~58.1.8",
     "expo-sharing": "~58.0.21",
     "expo-splash-screen": "~58.0.12",
+    "expo-sqlite": "~58.0.15",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.1",

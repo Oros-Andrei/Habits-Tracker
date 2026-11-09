@@ -17,8 +17,9 @@ import { ShoppingListTab } from "./src/Tabs/ShoppingListTab";
 import { getLocalDateKey, loadTrackerSnapshot, mergeTrackerSnapshot, parseTrackerBackup, saveTrackerSnapshot } from "./src/Resources/trackerStorage";
 import { applyExpenseAction, emptyExpenseBook } from "./src/Resources/expenseLedger";
 import { updateChore } from "./src/Resources/choreSchedule";
+import { applyShoppingAction, emptyShoppingBook } from "./src/Resources/shoppingLedger";
 import { syncChoreReminders } from "./src/Resources/choreReminders";
-import type { ActionMenuItem, ChoreAction, ExpenseAction, ExpenseBook, HabitAction, HabitEntryType, TabId, TrackerEntry, TrackerEntryType, TrackerSnapshot } from "./src/Resources/types";
+import type { ActionMenuItem, ChoreAction, ExpenseAction, ExpenseBook, HabitAction, HabitEntryType, ShoppingBook, TabId, TrackerEntry, TrackerEntryType, TrackerSnapshot } from "./src/Resources/types";
 
 // Keep the launch screen visible until the rounded font faces are ready.
 void SplashScreen.preventAutoHideAsync();
@@ -31,6 +32,9 @@ export default function App() {
   // Financial data shares the same snapshot and write lock as all tracker entries.
   const [expenses, setExpenses] = useState<ExpenseBook>(emptyExpenseBook);
   const expensesRef = useRef<ExpenseBook>(emptyExpenseBook());
+  // Products, prices, and stock share the existing persist-before-display guard across every tab.
+  const [shopping, setShopping] = useState<ShoppingBook>(emptyShoppingBook);
+  const shoppingRef = useRef<ShoppingBook>(emptyShoppingBook());
   const [entriesLoaded, setEntriesLoaded] = useState(false);
   // Use the latest persisted snapshot and reject overlapping writes across tracker actions.
   const entriesRef = useRef<TrackerEntry[]>([]);
@@ -52,6 +56,7 @@ export default function App() {
         if (mounted) {
           entriesRef.current = saved.entries; setEntries(saved.entries);
           expensesRef.current = saved.expenses; setExpenses(saved.expenses);
+          shoppingRef.current = saved.shopping; setShopping(saved.shopping);
         }
       })
       // Stop on failed reads so an empty screen cannot overwrite existing completion history.
@@ -92,10 +97,11 @@ export default function App() {
     if (savingRef.current) throw new Error("Another change is being saved. Please try again.");
     savingRef.current = true;
     try {
-      const next = update({ entries: entriesRef.current, expenses: expensesRef.current });
+      const next = update({ entries: entriesRef.current, expenses: expensesRef.current, shopping: shoppingRef.current });
       await saveTrackerSnapshot(next);
       entriesRef.current = next.entries; expensesRef.current = next.expenses;
       setEntries(next.entries); setExpenses(next.expenses);
+      shoppingRef.current = next.shopping; setShopping(next.shopping);
     } finally {
       savingRef.current = false;
     }
@@ -111,16 +117,17 @@ export default function App() {
     else Alert.alert(title, message);
   };
 
-  // Follow Garden's browser download and Android share-sheet backup flow.
+  // Manual exports remain portable JSON files, independent of the device's database format.
   const handleExport = async () => {
     try {
       const backup = {
         app: "habits-tracker" as const,
-        // Version 5 includes category assignments, payment history, and effective-dated income amounts.
-        formatVersion: 5 as const,
+        // Version 12 preserves bought history, repeat purchases, and their list-specific quantities.
+        formatVersion: 12 as const,
         exportedAt: new Date().toISOString(),
         entries: entriesRef.current,
         expenses: expensesRef.current,
+        shopping: shoppingRef.current,
       };
       const backupText = `${JSON.stringify(backup, null, 2)}\n`;
       const filename = `habits-tracker-${new Date().toISOString().slice(0, 10)}.json`;
@@ -133,6 +140,16 @@ export default function App() {
         link.download = filename;
         link.click();
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return;
+      }
+
+      // Let Android users save a durable backup directly in a folder they choose.
+      if (Platform.OS === "android") {
+        const folder = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+        if (!folder.granted) return;
+        const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(folder.directoryUri, filename, "application/json");
+        await FileSystem.writeAsStringAsync(fileUri, backupText, { encoding: FileSystem.EncodingType.UTF8 });
+        showBackupMessage("Export complete", "Your backup was saved in the selected folder.");
         return;
       }
 
@@ -253,7 +270,9 @@ export default function App() {
           onCreate={() => { setAddEntryType("chore"); setAddModalVisible(true); }}
           onUpdate={handleChoreUpdate} reminderNotice={reminderNotice} />;
       case "shopping":
-        return <ShoppingListTab />;
+        return <ShoppingListTab book={shopping} onUpdate={(action) => persistSnapshot((current) => ({
+          ...current, shopping: applyShoppingAction(current.shopping, action),
+        }))} />;
       default:
         // Dashboard totals follow saved completions rather than the number of habit definitions.
         return <DashboardTab entries={entries} expenses={expenses} />;

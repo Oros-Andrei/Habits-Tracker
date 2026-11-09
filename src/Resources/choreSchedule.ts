@@ -88,6 +88,17 @@ export function listChoreOccurrences(entries: TrackerEntry[], from: string, to: 
   return result.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
 }
 
+// Find a real pending date for the editor without exposing estimated or already completed plans.
+export function chorePlanDate(entry: TrackerEntry, schedule: ChoreSchedule, today: string): string | undefined {
+  if (!entry.choreTracking?.active || schedule.stopped) return undefined;
+  const scoped = { ...entry, choreTracking: { ...entry.choreTracking, schedules: [schedule],
+    completions: entry.choreTracking.completions.filter((item) => item.scheduleId === schedule.id) } };
+  const horizon = schedule.repeat ? advanceChoreDate(today, schedule.repeat.every, schedule.repeat.unit) : today;
+  const to = schedule.startDate > horizon ? schedule.startDate : horizon;
+  const next = listChoreOccurrences([scoped], today, to).find((item) => !item.completedDate);
+  return next?.dueDate ?? listChoreOccurrences([scoped], schedule.startDate, today).find((item) => !item.completedDate)?.dueDate;
+}
+
 // One pure update path gives checkboxes, planning dialogs, and persistence the same rules.
 export function updateChore(entry: TrackerEntry, action: ChoreAction, today: string): TrackerEntry {
   if (entry.type !== "chore") throw new Error("This chore is no longer available.");
@@ -96,7 +107,7 @@ export function updateChore(entry: TrackerEntry, action: ChoreAction, today: str
   if (action.type === "remove") return { ...entry, choreTracking: {
     ...tracking, active: false, schedules: tracking.schedules.map((schedule) => ({ ...schedule, stopped: true })),
   } };
-  if (action.type === "schedule") {
+  if (action.type === "schedule" || action.type === "updateSchedule") {
     const plan = action.schedule;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(plan.startDate) || getLocalDateKey(choreDate(plan.startDate)) !== plan.startDate ||
         (plan.reminderTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(plan.reminderTime)) ||
@@ -104,8 +115,36 @@ export function updateChore(entry: TrackerEntry, action: ChoreAction, today: str
           !["days", "weeks", "months"].includes(plan.repeat.unit) || !["fixed", "completion"].includes(plan.repeat.basis)))) {
       throw new Error("Choose a valid date, frequency, and reminder time (HH:mm).");
     }
-    if (listChoreOccurrences([entry], plan.startDate, plan.startDate).length > 0) {
+    // A reminder-only edit keeps the original anchor and completion links, including short-month clamps.
+    const previous = action.type === "updateSchedule" ? tracking.schedules.find((item) => item.id === action.scheduleId && !item.stopped) : undefined;
+    if (action.type === "updateSchedule") {
+      if (!previous || !tracking.active) throw new Error("This plan is no longer available to update.");
+      const pendingDate = chorePlanDate(entry, previous, today);
+      if (!pendingDate) throw new Error("This plan has no pending dates. Add a new plan instead.");
+      const sameRepeat = previous.repeat?.every === plan.repeat?.every && previous.repeat?.unit === plan.repeat?.unit && previous.repeat?.basis === plan.repeat?.basis;
+      if (plan.startDate === pendingDate && sameRepeat) {
+        const { reminderTime: _oldReminder, ...unchanged } = previous;
+        return { ...entry, choreTracking: { ...tracking, schedules: tracking.schedules.map((item) => item.id === previous.id
+          ? { ...unchanged, ...(plan.reminderTime ? { reminderTime: plan.reminderTime } : {}) } : item) } };
+      }
+      const completed = tracking.completions.filter((item) => item.scheduleId === previous.id);
+      if (completed.some((item) => plan.startDate <= item.dueDate || plan.startDate <= item.completedDate)) {
+        throw new Error("Choose a next date after this plan's saved completions.");
+      }
+    }
+    // Ignore the replaced pending series when checking collisions, while retaining its completed history.
+    const remaining = previous ? { ...entry, choreTracking: { ...tracking,
+      schedules: tracking.schedules.map((item) => item.id === previous.id ? { ...item, stopped: true } : item) } } : entry;
+    if (listChoreOccurrences([remaining], plan.startDate, plan.startDate).length > 0) {
       throw new Error("This chore already has a record or plan on that date.");
+    }
+    if (previous) {
+      const hasHistory = tracking.completions.some((item) => item.scheduleId === previous.id);
+      // Archive a completed series before replacing its pending dates; old completion IDs remain valid in backups.
+      return { ...entry, choreTracking: { ...tracking, schedules: hasHistory
+        ? [...tracking.schedules.map((item) => item.id === previous.id ? { ...item, stopped: true } : item),
+          { ...plan, id: `${Date.now()}-${Math.random().toString(36).slice(2)}` }]
+        : tracking.schedules.map((item) => item.id === previous.id ? { ...plan, id: previous.id } : item) } };
     }
     return { ...entry, choreTracking: { ...tracking, active: true, schedules: [
       ...tracking.schedules, { ...plan, id: `${Date.now()}-${Math.random().toString(36).slice(2)}` },
