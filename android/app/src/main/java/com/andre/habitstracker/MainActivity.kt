@@ -2,6 +2,12 @@ package com.andre.habitstracker
 
 import android.os.Build
 import android.os.Bundle
+import android.graphics.Color
+import android.view.View
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -17,6 +23,41 @@ class MainActivity : ReactActivity() {
     // This is required for expo-splash-screen.
     setTheme(R.style.AppTheme);
     super.onCreate(null)
+    configurePhoneBars()
+  }
+
+  // Reserve the measured status-bar/cutout area so the app starts below the phone's top bar.
+  private fun configurePhoneBars() {
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    val content = findViewById<View>(android.R.id.content)
+    val left = content.paddingLeft
+    val top = content.paddingTop
+    val right = content.paddingRight
+    val bottom = content.paddingBottom
+    content.setBackgroundColor(Color.rgb(246, 237, 230))
+    ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
+      val safe = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout())
+      view.setPadding(left + safe.left, top + safe.top, right + safe.right, bottom)
+      insets
+    }
+    ViewCompat.requestApplyInsets(content)
+    hidePhoneNavigationBar()
+  }
+
+  // Hide only system navigation; keep status icons visible and allow swipe-to-reveal controls.
+  private fun hidePhoneNavigationBar() {
+    WindowInsetsControllerCompat(window, window.decorView).apply {
+      systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+      isAppearanceLightStatusBars = true
+      show(WindowInsetsCompat.Type.statusBars())
+      hide(WindowInsetsCompat.Type.navigationBars())
+    }
+  }
+
+  // Restore the navigation-bar policy when returning from system pickers or other windows.
+  override fun onWindowFocusChanged(hasFocus: Boolean) {
+    super.onWindowFocusChanged(hasFocus)
+    if (hasFocus) hidePhoneNavigationBar()
   }
 
   /**
