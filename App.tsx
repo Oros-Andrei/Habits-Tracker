@@ -17,7 +17,7 @@ import { ShoppingListTab } from "./src/Tabs/ShoppingListTab";
 import { getLocalDateKey, loadTrackerSnapshot, mergeTrackerSnapshot, parseTrackerBackup, saveTrackerSnapshot } from "./src/Resources/trackerStorage";
 import { applyExpenseAction, emptyExpenseBook } from "./src/Resources/expenseLedger";
 import { updateChore } from "./src/Resources/choreSchedule";
-import { applyShoppingAction, emptyShoppingBook } from "./src/Resources/shoppingLedger";
+import { applyShoppingAction, emptyShoppingBook, parseShoppingBook } from "./src/Resources/shoppingLedger";
 import { syncChoreReminders } from "./src/Resources/choreReminders";
 import type { ActionMenuItem, ChoreAction, ExpenseAction, ExpenseBook, HabitAction, HabitEntryType, ShoppingBook, TabId, TrackerEntry, TrackerEntryType, TrackerSnapshot } from "./src/Resources/types";
 
@@ -122,12 +122,13 @@ export default function App() {
     try {
       const backup = {
         app: "habits-tracker" as const,
-        // Version 12 preserves bought history, repeat purchases, and their list-specific quantities.
-        formatVersion: 12 as const,
+        // Version 13 adds optional inventory expiry without losing purchases or list quantities.
+        formatVersion: 13 as const,
         exportedAt: new Date().toISOString(),
         entries: entriesRef.current,
         expenses: expensesRef.current,
-        shopping: shoppingRef.current,
+        // Normalize legacy stock before export so every date is explicitly saved or null.
+        shopping: parseShoppingBook(shoppingRef.current),
       };
       const backupText = `${JSON.stringify(backup, null, 2)}\n`;
       const filename = `habits-tracker-${new Date().toISOString().slice(0, 10)}.json`;

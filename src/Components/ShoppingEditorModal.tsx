@@ -3,11 +3,13 @@ import { StyleSheet, Text, View } from "react-native";
 import { TrackerDialog } from "./AddEntryModal";
 import { Button } from "./Button";
 import { Dropdown } from "./Dropdown";
+import { DatePicker } from "./DatePicker";
 import { TextBox } from "./TextBox";
 import { parseLei } from "../Resources/expenseLedger";
 import { formatStockQuantity, parseStockQuantity, shoppingProductLabel, STOCK_UNITS } from "../Resources/shoppingLedger";
 import { COLORS } from "../Resources/theme";
 import { FONT_FAMILY } from "../Resources/typography";
+import { getLocalDateKey } from "../Resources/trackerStorage";
 import type { ShoppingAction, ShoppingBook, StockUnit } from "../Resources/types";
 
 // All shopping workflows use shared controls and the same bounded, closeable dialog surface.
@@ -32,6 +34,9 @@ export function ShoppingEditorModal({ editor, book, onSave, onClose }: Props) {
   const [locationId, setLocationId] = useState(editor.locationId);
   const [unit, setUnit] = useState<StockUnit>(initialStock?.unit ?? "units");
   const [quantity, setQuantity] = useState(initialStock ? String(initialStock.quantityMilli / 1000) : "1");
+  // Leaving this off never assigns a date to new stock; editing an item can explicitly clear it.
+  const [hasExpiry, setHasExpiry] = useState(!!initialStock?.expiryDate);
+  const [expiryDate, setExpiryDate] = useState(() => initialStock?.expiryDate ? new Date(`${initialStock.expiryDate}T12:00:00`) : new Date());
   const [price, setPrice] = useState(initialOffer ? (initialOffer.priceBani / 100).toFixed(2) : "");
   const [onSale, setOnSale] = useState(initialOffer?.salePriceBani != null);
   const [salePrice, setSalePrice] = useState(initialOffer?.salePriceBani != null ? (initialOffer.salePriceBani / 100).toFixed(2) : "");
@@ -53,7 +58,7 @@ export function ShoppingEditorModal({ editor, book, onSave, onClose }: Props) {
   const canReverse = !!addition && !!addedStock && addedStock.quantityMilli >= addition.quantityMilli;
   const titles: Record<ShoppingEditor["mode"], string> = { supermarket: "Add a supermarket", product: "Add a product", offer: "Add a supermarket product", price: "Update product price",
     addToList: "Add a product to the list", removeFromList: "Remove a product from the list", location: "Add an inventory location",
-    addStock: "Add inventory stock", setStock: "Update stock quantity", buy: "Mark as bought", unbuy: "Uncheck bought item" };
+    addStock: "Add inventory stock", setStock: "Update inventory item", buy: "Mark as bought", unbuy: "Uncheck bought item" };
   const selectingProduct = mode === "offer" || mode === "addStock";
   const pricing = mode === "offer" || mode === "price";
   const stockForm = mode === "addStock" || mode === "setStock" || (mode === "buy" && addInventory);
@@ -75,6 +80,7 @@ export function ShoppingEditorModal({ editor, book, onSave, onClose }: Props) {
     pending.current = true; setSaving(true); setError(""); setSuccess("");
     try {
       let action: ShoppingAction;
+      const selectedExpiry = hasExpiry ? getLocalDateKey(expiryDate) : null;
       const listQuantity = mode === "addToList" && listAmount.trim() ? {
         amountMilli: parseStockQuantity(listAmount, listUnit), unit: listUnit,
       } : undefined;
@@ -86,19 +92,20 @@ export function ShoppingEditorModal({ editor, book, onSave, onClose }: Props) {
       else if (mode === "addToList") action = { type: "addToList", productId, ...(listQuantity ? { quantity: listQuantity } : {}) };
       else if (mode === "removeFromList") action = { type: "removeFromList", itemId: itemId! };
       else if (mode === "addStock") action = { type: "addStock", productId: productId === "" ? undefined : productId, name,
-        locationId: locationId!, unit, quantityMilli: parseStockQuantity(quantity, unit) };
-      else if (mode === "setStock") action = { type: "setStock", stockId: editor.stockId!, quantityMilli: parseStockQuantity(quantity, initialStock!.unit, true) };
+        locationId: locationId!, unit, quantityMilli: parseStockQuantity(quantity, unit), ...(hasExpiry ? { expiryDate: selectedExpiry } : {}) };
+      else if (mode === "setStock") action = { type: "setStock", stockId: editor.stockId!, quantityMilli: parseStockQuantity(quantity, initialStock!.unit, true), expiryDate: selectedExpiry };
       else if (mode === "buy") action = { type: "buy", itemId: editor.itemId!, ...(addInventory ? { inventory: {
-        locationId: locationId!, unit, quantityMilli: parseStockQuantity(quantity, unit),
+        locationId: locationId!, unit, quantityMilli: parseStockQuantity(quantity, unit), ...(hasExpiry ? { expiryDate: selectedExpiry } : {}),
       } } : {}) };
       else action = { type: "unbuy", itemId: editor.itemId!, reverseInventory };
       await onSave(action);
       if (["addToList", "removeFromList", "buy", "unbuy"].includes(mode)) { onClose(); return; }
       setSuccess(mode === "supermarket" ? `Supermarket added: ${name.trim()}.` : mode === "location" ? `Inventory location added: ${name.trim()}.`
-        : mode === "product" ? "Product saved." : mode === "offer" ? "Supermarket price saved." : mode === "price" ? "Product price updated." : mode === "addStock" ? "Quantity added to inventory." : "Stock quantity updated.");
+        : mode === "product" ? "Product saved." : mode === "offer" ? "Supermarket price saved." : mode === "price" ? "Product price updated." : mode === "addStock" ? "Quantity added to inventory." : "Inventory item updated.");
       if (["supermarket", "location", "product", "offer", "addStock"].includes(mode)) setName("");
       if (mode === "offer") { setPrice(""); setSalePrice(""); }
-      if (mode === "addStock") setQuantity("");
+      // Reset the optional date between additions so the next product does not inherit it.
+      if (mode === "addStock") { setQuantity(""); setHasExpiry(false); setExpiryDate(new Date()); }
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not save this change. Please try again."); }
     finally { pending.current = false; setSaving(false); }
   };
@@ -164,6 +171,15 @@ export function ShoppingEditorModal({ editor, book, onSave, onClose }: Props) {
       <TextBox disabled={saving} label={mode === "setStock" ? `Current quantity (${initialStock?.unit})` : `Quantity to add (${unit})`}
         value={quantity} onChangeText={(value) => { setQuantity(value); setSuccess(""); }} placeholder="1"
         helperText={unit === "grams" ? "Grams accept up to three decimal places." : "Enter a whole number."} />
+      {/* Reuse the shared calendar; the checkbox makes setting or clearing expiry explicit. */}
+      <View style={styles.checkboxRow}>
+        <Button checked={hasExpiry} disabled={saving} label="Set expiry date (optional)" onPress={() => { setHasExpiry((value) => !value); setSuccess(""); }} />
+        <Text style={styles.note}>Set expiry date (optional)</Text>
+      </View>
+      {hasExpiry ? <>
+        <DatePicker disabled={saving} inlineCalendar label="Expiry date" value={expiryDate} onChange={(date) => { setExpiryDate(date); setSuccess(""); }} />
+        <Text style={styles.note}>Applies to this inventory item's entire quantity.</Text>
+      </> : <Text style={styles.note}>{mode === "setStock" ? "Save with this option off to remove the expiry date." : "Adding more stock keeps any saved expiry date unless you select a new one."}</Text>}
     </> : null}
     {success ? <Text accessibilityLiveRegion="polite" style={styles.success}>{success}</Text> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}

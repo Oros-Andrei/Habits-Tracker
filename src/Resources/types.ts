@@ -75,7 +75,8 @@ export type ShoppingProduct = { id: string; name: string; quantity?: ShoppingQua
 export type Supermarket = { id: string; name: string };
 export type ProductOffer = { id: string; productId: string; supermarketId: string; priceBani: number; salePriceBani: number | null };
 export type InventoryLocation = { id: string; name: string };
-export type InventoryStock = { id: string; productId: string; locationId: string; unit: StockUnit; quantityMilli: number };
+// Expiry is optional metadata on the existing stock entry, never a separate batch identity.
+export type InventoryStock = { id: string; productId: string; locationId: string; unit: StockUnit; quantityMilli: number; expiryDate: string | null };
 // List membership belongs to the product; optional legacy offer links retain existing purchase history.
 // Bought entries remain as undoable history while the active list contains only pending purchases.
 export type ShoppingItem = { id: string; productId: string; quantity: ShoppingQuantity | null; offerId?: string; bought: boolean; boughtAt?: string; paidPriceBani?: number;
@@ -88,10 +89,11 @@ export type ShoppingAction =
   | { type: "price"; offerId: string; priceBani: number; salePriceBani: number | null }
   | { type: "addToList"; productId: string; quantity?: ShoppingQuantity }
   | { type: "removeFromList"; itemId: string }
-  | { type: "buy"; itemId: string; inventory?: { locationId: string; unit: StockUnit; quantityMilli: number } }
+  // Omitted expiry keeps an existing date; explicit null clears it when editing inventory.
+  | { type: "buy"; itemId: string; inventory?: { locationId: string; unit: StockUnit; quantityMilli: number; expiryDate?: string | null } }
   | { type: "unbuy"; itemId: string; reverseInventory: boolean }
-  | { type: "addStock"; productId?: string; name: string; locationId: string; unit: StockUnit; quantityMilli: number }
-  | { type: "setStock"; stockId: string; quantityMilli: number };
+  | { type: "addStock"; productId?: string; name: string; locationId: string; unit: StockUnit; quantityMilli: number; expiryDate?: string | null }
+  | { type: "setStock"; stockId: string; quantityMilli: number; expiryDate?: string | null };
 export type TrackerSnapshot = { entries: TrackerEntry[]; expenses: ExpenseBook; shopping: ShoppingBook };
 export type ExpenseAction =
   | { type: "createCategory"; name: string; color: string }

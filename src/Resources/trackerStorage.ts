@@ -10,7 +10,7 @@ const HABIT_TRACKING_FIELDS = [["goodHabitTracking", "goodHabit"], ["badHabitTra
 export type TrackerBackup = {
   app: "habits-tracker";
   // New data formats must be rejected by older apps rather than silently discarded.
-  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
   exportedAt: string;
   entries: TrackerEntry[];
   expenses?: ExpenseBook;
@@ -152,13 +152,13 @@ export function saveTrackerSnapshot(snapshot: TrackerSnapshot): Promise<void> {
   return writeStoredSnapshot({ entries, expenses, shopping }, parseStoredSnapshot);
 }
 
-// Version 12 preserves repeat purchases in bought history alongside per-entry quantities.
+// Version 13 preserves optional stock expiry; older apps must reject rather than discard it.
 export function parseTrackerBackup(value: unknown): TrackerBackup {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("The selected file is not a valid Habits Tracker backup.");
   }
   const backup = value as Partial<TrackerBackup>;
-  if (backup.app !== "habits-tracker" || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(backup.formatVersion as number) ||
+  if (backup.app !== "habits-tracker" || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].includes(backup.formatVersion as number) ||
       typeof backup.exportedAt !== "string") {
     throw new Error("This is not a supported Habits Tracker backup.");
   }
@@ -171,6 +171,10 @@ export function parseTrackerBackup(value: unknown): TrackerBackup {
   // Current-format rows explicitly store null for an omitted amount; only older files need default migration.
   if ((backup.formatVersion as number) >= 11 && Array.isArray(backup.shopping?.items) && backup.shopping.items.some((item) => !item || item.quantity === undefined)) {
     throw new Error("The backup is missing shopping-list quantity data.");
+  }
+  // An explicit null distinguishes a cleared date from a backup created before expiry existed.
+  if ((backup.formatVersion as number) >= 13 && Array.isArray(backup.shopping?.stock) && backup.shopping.stock.some((item) => !item || item.expiryDate === undefined)) {
+    throw new Error("The backup is missing inventory expiry-date data.");
   }
   const shopping = (backup.formatVersion as number) >= 8 ? parseShoppingBook(backup.shopping) : undefined;
   return {
@@ -211,8 +215,8 @@ export function mergeTrackerEntries(current: TrackerEntry[], incoming: TrackerEn
 // Merge portable financial entities by ID, with imported income settings winning for the same month.
 export function mergeTrackerSnapshot(current: TrackerSnapshot, incoming: TrackerBackup): TrackerSnapshot {
   let entries = mergeTrackerEntries(current.entries, incoming.entries);
-  // Old backups preserve local shopping; matching imported stock replaces rather than sums its quantity.
-  const shopping = mergeShoppingBook(current.shopping, incoming.formatVersion >= 8 ? incoming.shopping : undefined, incoming.formatVersion < 11);
+  // Old backups preserve newer quantities/dates; matching imported stock still replaces its quantity.
+  const shopping = mergeShoppingBook(current.shopping, incoming.formatVersion >= 8 ? incoming.shopping : undefined, incoming.formatVersion < 11, incoming.formatVersion < 13);
   if (!incoming.expenses) return { entries, expenses: parseExpenseBook(current.expenses, entries), shopping };
   const merge = <T extends { id: string }>(local: T[], imported: T[]): T[] => [...new Map([...local, ...imported].map((item) => [item.id, item])).values()];
   const categories = merge(current.expenses.categories, incoming.expenses.categories);

@@ -11,10 +11,12 @@ type DatePickerProps = {
   onChange: (date: Date) => void;
   // Bounded planning dialogs can scroll around the calendar rather than clipping it.
   inlineCalendar?: boolean;
+  // Async forms can lock all date interactions while a save is in progress.
+  disabled?: boolean;
 };
 
 // This date picker pairs the shared calendar with its matching clay icon.
-export function DatePicker({ label, value, onChange, inlineCalendar = false }: DatePickerProps) {
+export function DatePicker({ label, value, onChange, inlineCalendar = false, disabled = false }: DatePickerProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -22,7 +24,8 @@ export function DatePicker({ label, value, onChange, inlineCalendar = false }: D
       <Text style={styles.label}>{label}</Text>
       <Pressable
         accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
+        accessibilityState={{ expanded: open && !disabled, disabled }}
+        disabled={disabled}
         onPress={() => setOpen((current) => !current)}
         style={[styles.field, SOFT_SHADOW]}
       >
@@ -30,7 +33,7 @@ export function DatePicker({ label, value, onChange, inlineCalendar = false }: D
         <Text style={styles.value}>{value.toLocaleDateString("en-GB")}</Text>
         <SectionIcon name="calendar" size={22} />
       </Pressable>
-      {open ? (
+      {open && !disabled ? (
         <View style={[styles.calendar, inlineCalendar && styles.inlineCalendar]}>
           <Calendar value={value} onChange={(date) => { onChange(date); setOpen(false); }} />
         </View>

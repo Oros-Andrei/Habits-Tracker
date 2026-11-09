@@ -16,6 +16,17 @@ const validUnit = (unit: unknown): unit is StockUnit => STOCK_UNITS.some((item) 
 const validQuantity = (amount: unknown, unit: StockUnit, positive = false): amount is number =>
   typeof amount === "number" && Number.isSafeInteger(amount) && amount >= (positive ? 1 : 0) && amount <= LIMIT && (unit === "grams" || amount % 1000 === 0);
 
+// Validate calendar dates without UTC conversion; legacy stock can have no expiry at all.
+export function parseStockExpiry(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error("Choose a valid expiry date.");
+  const date = new Date(`${value}T12:00:00`);
+  if (date.getFullYear() !== Number(value.slice(0, 4)) || date.getMonth() + 1 !== Number(value.slice(5, 7)) || date.getDate() !== Number(value.slice(8, 10))) {
+    throw new Error("Choose a valid expiry date.");
+  }
+  return value;
+}
+
 // Countable containers stay whole numbers; grams accept up to three decimal places without rounding.
 export function parseStockQuantity(value: string, unit: StockUnit, allowZero = false): number {
   const text = value.trim();
@@ -86,7 +97,9 @@ export function parseShoppingBook(value: unknown): ShoppingBook {
   const stock = array(book.stock, (item) => {
     const pair = JSON.stringify([item.productId, item.locationId, item.unit]);
     if (!productIds.has(item.productId) || !locationIds.has(item.locationId) || !validUnit(item.unit) || !validQuantity(item.quantityMilli, item.unit) || pairs.has(pair)) return fail();
-    pairs.add(pair); return { id: item.id, productId: item.productId, locationId: item.locationId, unit: item.unit, quantityMilli: item.quantityMilli };
+    // The date never changes uniqueness: one row still represents each product/location/unit.
+    pairs.add(pair); return { id: item.id, productId: item.productId, locationId: item.locationId, unit: item.unit, quantityMilli: item.quantityMilli,
+      expiryDate: parseStockExpiry(item.expiryDate) };
   });
   const stockMap = new Map(stock.map((item) => [item.id, item])), offerMap = new Map(offers.map((item) => [item.id, item]));
   const listed = new Set<string>();
@@ -149,11 +162,13 @@ export function applyShoppingAction(current: ShoppingBook, action: ShoppingActio
   const prices = (price: number, sale: number | null) => {
     if (!validMoney(price) || (sale !== null && (!validMoney(sale) || sale >= price))) throw new Error("Enter a regular price and an optional sale price below it.");
   };
-  const addStock = (productId: string, locationId: string, unit: StockUnit, quantityMilli: number): InventoryStock => {
+  const addStock = (productId: string, locationId: string, unit: StockUnit, quantityMilli: number, expiryDate?: string | null): InventoryStock => {
     if (!book.locations.some((item) => item.id === locationId)) throw new Error("Choose an inventory location.");
     if (!validUnit(unit) || !validQuantity(quantityMilli, unit, true)) throw new Error("Enter a valid quantity and unit.");
     const saved = book.stock.find((item) => item.productId === productId && item.locationId === locationId && item.unit === unit);
-    const next = { id: saved?.id ?? id(), productId, locationId, unit, quantityMilli: (saved?.quantityMilli ?? 0) + quantityMilli };
+    // An undated top-up preserves the saved date; selecting a new date updates this same entry.
+    const next = { id: saved?.id ?? id(), productId, locationId, unit, quantityMilli: (saved?.quantityMilli ?? 0) + quantityMilli,
+      expiryDate: expiryDate === undefined ? saved?.expiryDate ?? null : parseStockExpiry(expiryDate) };
     if (!validQuantity(next.quantityMilli, unit)) throw new Error("The inventory quantity is too large.");
     book = { ...book, stock: saved ? book.stock.map((item) => item.id === saved.id ? next : item) : [...book.stock, next] };
     return next;
@@ -192,7 +207,7 @@ export function applyShoppingAction(current: ShoppingBook, action: ShoppingActio
   } else if (action.type === "buy") {
     const item = listItem(action.itemId);
     if (item.bought) throw new Error("This item is already marked as bought.");
-    const stock = action.inventory ? addStock(item.productId, action.inventory.locationId, action.inventory.unit, action.inventory.quantityMilli) : undefined;
+    const stock = action.inventory ? addStock(item.productId, action.inventory.locationId, action.inventory.unit, action.inventory.quantityMilli, action.inventory.expiryDate) : undefined;
     book = { ...book, items: book.items.map((saved) => saved.id === item.id ? { ...saved, bought: true, boughtAt: new Date().toISOString(),
       ...(item.offerId ? { paidPriceBani: offerPrice(offer(item.offerId)) } : {}),
       ...(stock && action.inventory ? { inventoryAddition: { stockId: stock.id, quantityMilli: action.inventory.quantityMilli } } : {}) } : saved) };
@@ -213,17 +228,19 @@ export function applyShoppingAction(current: ShoppingBook, action: ShoppingActio
       ...(saved.offerId !== undefined ? { offerId: saved.offerId } : {}), bought: false } : saved) };
   } else if (action.type === "addStock") {
     const saved = product(action.productId, action.name);
-    addStock(saved.id, action.locationId, action.unit, action.quantityMilli);
+    addStock(saved.id, action.locationId, action.unit, action.quantityMilli, action.expiryDate);
   } else if (action.type === "setStock") {
     const stock = book.stock.find((item) => item.id === action.stockId);
     if (!stock || !validQuantity(action.quantityMilli, stock.unit)) throw new Error("Enter a valid stock quantity of zero or more.");
-    book = { ...book, stock: book.stock.map((item) => item.id === stock.id ? { ...item, quantityMilli: action.quantityMilli } : item) };
+    // Quantity edits preserve expiry unless the form explicitly supplies a date or clears it.
+    book = { ...book, stock: book.stock.map((item) => item.id === stock.id ? { ...item, quantityMilli: action.quantityMilli,
+      expiryDate: action.expiryDate === undefined ? item.expiryDate : parseStockExpiry(action.expiryDate) } : item) };
   } else throw new Error("Unknown shopping action.");
   return parseShoppingBook(book);
 }
 
 // Importing the same backup is idempotent; stock amounts are replaced by ID rather than added twice.
-export function mergeShoppingBook(current: ShoppingBook, incoming: ShoppingBook | undefined, preserveListQuantity = false): ShoppingBook {
+export function mergeShoppingBook(current: ShoppingBook, incoming: ShoppingBook | undefined, preserveListQuantity = false, preserveStockExpiry = false): ShoppingBook {
   const local = parseShoppingBook(current);
   if (!incoming) return local;
   const imported = parseShoppingBook(incoming);
@@ -237,6 +254,11 @@ export function mergeShoppingBook(current: ShoppingBook, incoming: ShoppingBook 
     const existing = local.items.find((saved) => saved.id === item.id);
     return preserveListQuantity && existing ? { ...item, quantity: existing.quantity } : item;
   });
+  // Importing a backup from before expiry support cannot erase a matching stock entry's date.
+  const stock = imported.stock.map((item) => {
+    const existing = local.stock.find((saved) => saved.id === item.id);
+    return preserveStockExpiry && existing ? { ...item, expiryDate: existing.expiryDate } : item;
+  });
   return parseShoppingBook({ products: merge(local.products, products), supermarkets: merge(local.supermarkets, imported.supermarkets),
-    offers: merge(local.offers, imported.offers), items: merge(local.items, items), locations: merge(local.locations, imported.locations), stock: merge(local.stock, imported.stock) });
+    offers: merge(local.offers, imported.offers), items: merge(local.items, items), locations: merge(local.locations, imported.locations), stock: merge(local.stock, stock) });
 }

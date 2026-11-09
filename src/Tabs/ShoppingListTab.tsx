@@ -93,7 +93,9 @@ export function ShoppingListTab({ book, onUpdate }: { book: ShoppingBook; onUpda
                 onPress={() => open({ mode: "addToList", productId: offer.productId })} variant="secondary" />
             </View>) : <Text style={styles.note}>No products saved at this supermarket.</Text>
               : stock.length ? stock.map((item) => <View key={item.id} style={styles.row}>
-                <View style={styles.details}><Text style={styles.name}>{productName(item.productId)}</Text><Text style={styles.note}>{formatStockQuantity(item.quantityMilli, item.unit)}</Text></View>
+                {/* Date-only formatting keeps expiry beside the quantity without time-zone shifts. */}
+                <View style={styles.details}><Text style={styles.name}>{productName(item.productId)}</Text><Text style={styles.note}>{formatStockQuantity(item.quantityMilli, item.unit)}
+                  {item.expiryDate ? ` · Expires ${item.expiryDate.split("-").reverse().join("/")}` : ""}</Text></View>
                 <Button disabled={saving} icon="options" iconOnly label={`Update stock for ${productName(item.productId)} in ${group.name}`} onPress={() => open({ mode: "setStock", stockId: item.id })} variant="secondary" />
               </View>) : <Text style={styles.note}>No inventory entries yet.</Text>}
           </View> : null}
