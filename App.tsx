@@ -14,12 +14,12 @@ import { DashboardTab } from "./src/Tabs/DashboardTab";
 import { ExpensesTab } from "./src/Tabs/ExpensesTab";
 import { GoodHabitsTab } from "./src/Tabs/GoodHabitsTab";
 import { ShoppingListTab } from "./src/Tabs/ShoppingListTab";
-import { getLocalDateKey, loadTrackerSnapshot, mergeTrackerSnapshot, parseTrackerBackup, saveTrackerSnapshot } from "./src/Resources/trackerStorage";
+import { archiveSavedItem, getLocalDateKey, loadTrackerSnapshot, mergeTrackerSnapshot, parseTrackerBackup, saveTrackerSnapshot } from "./src/Resources/trackerStorage";
 import { applyExpenseAction, emptyExpenseBook } from "./src/Resources/expenseLedger";
 import { updateChore } from "./src/Resources/choreSchedule";
 import { applyShoppingAction, emptyShoppingBook, parseShoppingBook } from "./src/Resources/shoppingLedger";
 import { syncChoreReminders } from "./src/Resources/choreReminders";
-import type { ActionMenuItem, ChoreAction, ExpenseAction, ExpenseBook, HabitAction, HabitEntryType, ShoppingBook, TabId, TrackerEntry, TrackerEntryType, TrackerSnapshot } from "./src/Resources/types";
+import type { ActionMenuItem, ChoreAction, ExpenseAction, ExpenseBook, HabitAction, HabitEntryType, SavedItemKind, ShoppingBook, TabId, TrackerEntry, TrackerEntryType, TrackerSnapshot } from "./src/Resources/types";
 
 // Keep the launch screen visible until the rounded font faces are ready.
 void SplashScreen.preventAutoHideAsync();
@@ -123,7 +123,7 @@ export default function App() {
       const backup = {
         app: "habits-tracker" as const,
         // Version 13 adds optional inventory expiry without losing purchases or list quantities.
-        formatVersion: 13 as const,
+        formatVersion: 14 as const,
         exportedAt: new Date().toISOString(),
         entries: entriesRef.current,
         expenses: expensesRef.current,
@@ -212,7 +212,7 @@ export default function App() {
   const handleHabitUpdate = async (type: HabitEntryType, id: string, action: HabitAction) => {
     const trackingField = type === "goodHabit" ? "goodHabitTracking" : "badHabitTracking";
     await persistEntries((current) => {
-      if (!current.some((entry) => entry.id === id && entry.type === type)) {
+      if (!current.some((entry) => entry.id === id && entry.type === type && !entry.archived)) {
         throw new Error("This habit is no longer available.");
       }
       const today = getLocalDateKey(new Date());
@@ -239,11 +239,14 @@ export default function App() {
   // Apply chore changes to the latest snapshot and expose them only after a successful write.
   const handleChoreUpdate = async (id: string, action: ChoreAction) => {
     await persistEntries((current) => {
-      if (!current.some((entry) => entry.id === id && entry.type === "chore")) throw new Error("This chore is no longer available.");
+      if (!current.some((entry) => entry.id === id && entry.type === "chore" && !entry.archived)) throw new Error("This chore is no longer available.");
       const today = getLocalDateKey(new Date());
       return current.map((entry) => entry.id === id ? updateChore(entry, action, today) : entry);
     });
   };
+
+  // All saved-item deletion goes through the same atomic snapshot guard as ordinary edits.
+  const handleDelete = (kind: SavedItemKind, id: string) => persistSnapshot((current) => archiveSavedItem(current, kind, id));
 
   const screen = (() => {
     switch (activeTab) {
@@ -253,6 +256,7 @@ export default function App() {
             entries={entries.filter((entry) => entry.type === "goodHabit")}
             onCreate={() => { setAddEntryType("goodHabit"); setAddModalVisible(true); }}
             onUpdate={(id, action) => handleHabitUpdate("goodHabit", id, action)}
+            onDelete={(id) => handleDelete("goodHabit", id)}
           />
         );
       case "badHabits":
@@ -261,17 +265,19 @@ export default function App() {
             entries={entries.filter((entry) => entry.type === "badHabit")}
             onCreate={() => { setAddEntryType("badHabit"); setAddModalVisible(true); }}
             onUpdate={(id, action) => handleHabitUpdate("badHabit", id, action)}
+            onDelete={(id) => handleDelete("badHabit", id)}
           />
         );
       case "expenses":
         return <ExpensesTab entries={entries.filter((entry) => entry.type === "expenseType")} book={expenses}
+          onDelete={handleDelete}
           onUpdate={(action: ExpenseAction) => persistSnapshot((current) => applyExpenseAction(current, action, getLocalDateKey(new Date())))} />;
       case "chores":
         return <ChoresTab entries={entries.filter((entry) => entry.type === "chore")}
           onCreate={() => { setAddEntryType("chore"); setAddModalVisible(true); }}
-          onUpdate={handleChoreUpdate} reminderNotice={reminderNotice} />;
+          onUpdate={handleChoreUpdate} onDelete={(id) => handleDelete("chore", id)} reminderNotice={reminderNotice} />;
       case "shopping":
-        return <ShoppingListTab book={shopping} onUpdate={(action) => persistSnapshot((current) => ({
+        return <ShoppingListTab book={shopping} onDelete={handleDelete} onUpdate={(action) => persistSnapshot((current) => ({
           ...current, shopping: applyShoppingAction(current.shopping, action),
         }))} />;
       default:

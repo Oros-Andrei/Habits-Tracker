@@ -2,27 +2,29 @@ import { useRef, useState, type ComponentRef } from "react";
 import { Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { ActionMenu } from "../Components/ActionMenu";
 import { Button } from "../Components/Button";
-import { TrackerDialog } from "../Components/AddEntryModal";
+import { DeleteSavedItemModal, TrackerDialog } from "../Components/AddEntryModal";
 import { ShoppingEditorModal, type ShoppingEditor } from "../Components/ShoppingEditorModal";
 import { formatLei } from "../Resources/expenseLedger";
 import { formatStockQuantity, offerPrice, shoppingItemLabel, shoppingProductLabel } from "../Resources/shoppingLedger";
 import { COLORS, SOFT_SHADOW } from "../Resources/theme";
 import { FONT_FAMILY } from "../Resources/typography";
-import type { ProductOffer, ShoppingAction, ShoppingBook, ShoppingItem } from "../Resources/types";
+import type { ProductOffer, SavedItemKind, ShoppingAction, ShoppingBook, ShoppingItem } from "../Resources/types";
 
 // Saved products, list membership, and stock share one local book on both platforms.
-export function ShoppingListTab({ book, onUpdate }: { book: ShoppingBook; onUpdate: (action: ShoppingAction) => Promise<void> }) {
+export function ShoppingListTab({ book, onUpdate, onDelete }: { book: ShoppingBook; onUpdate: (action: ShoppingAction) => Promise<void>;
+  onDelete: (kind: SavedItemKind, id: string) => Promise<void> }) {
   const { width, height } = useWindowDimensions();
   const android = Platform.OS === "android", columns = !android && width >= 1100;
   const [section, setSection] = useState<"list" | "supermarkets" | "inventory">("list");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [menu, setMenu] = useState(false);
+  const [deleteVisible, setDeleteVisible] = useState(false);
   const [position, setPosition] = useState({ left: 12, top: 12 });
   const anchor = useRef<ComponentRef<typeof View>>(null);
   const [editor, setEditor] = useState<ShoppingEditor>();
   const [showHistory, setShowHistory] = useState(false);
   // Bought entries leave the active checklist and stay available for Undo in a bounded history dialog.
-  const activeItems = book.items.filter((item) => !item.bought);
+  const activeItems = book.items.filter((item) => !item.bought && book.products.some((product) => product.id === item.productId && !product.archived));
   const history = book.items.filter((item) => item.bought).reverse().sort((a, b) => (b.boughtAt ?? "").localeCompare(a.boughtAt ?? ""));
   const [saving, setSaving] = useState(false);
   const pending = useRef(false);
@@ -72,13 +74,15 @@ export function ShoppingListTab({ book, onUpdate }: { book: ShoppingBook; onUpda
       <Button disabled={saving} icon="add" iconOnly label={kind === "supermarket" ? "Add a supermarket" : "Add an inventory location"} onPress={() => open({ mode: kind })} variant="secondary" />
     </View>
     {/* Matching metadata rows align the first supermarket card with the shopping-list panel. */}
-    <Text style={styles.note}>{kind === "supermarket" ? `${book.supermarkets.length} ${book.supermarkets.length === 1 ? "supermarket" : "supermarkets"}`
-      : `${book.locations.length} ${book.locations.length === 1 ? "location" : "locations"}`}</Text>
+    <Text style={styles.note}>{kind === "supermarket" ? `${book.supermarkets.filter((item) => !item.archived).length} supermarkets`
+      : `${book.locations.filter((item) => !item.archived).length} locations`}</Text>
     <View style={[styles.board, android && styles.nativeBoard]}>
-      {!(kind === "supermarket" ? book.supermarkets : book.locations).length ? <View style={[styles.panel, SOFT_SHADOW]}><Text style={styles.note}>{kind === "supermarket" ? "Add a supermarket, then save products and prices for it." : "Create a storage location such as Fridge, Cellar, or Pantry."}</Text></View> : null}
-      {(kind === "supermarket" ? book.supermarkets : book.locations).map((group) => {
+      {!(kind === "supermarket" ? book.supermarkets : book.locations).some((item) => !item.archived) ? <View style={[styles.panel, SOFT_SHADOW]}><Text style={styles.note}>{kind === "supermarket" ? "Add a supermarket, then save products and prices for it." : "Create a storage location such as Fridge, Cellar, or Pantry."}</Text></View> : null}
+      {(kind === "supermarket" ? book.supermarkets : book.locations).filter((item) => !item.archived).map((group) => {
         const key = `${kind}:${group.id}`, isOpen = !android || !!expanded[key];
-        const offers = book.offers.filter((item) => item.supermarketId === group.id), stock = book.stock.filter((item) => item.locationId === group.id);
+        // Linked prices and stock remain in backups but disappear with a deleted saved definition.
+        const offers = book.offers.filter((item) => item.supermarketId === group.id && book.products.some((product) => product.id === item.productId && !product.archived));
+        const stock = book.stock.filter((item) => item.locationId === group.id && book.products.some((product) => product.id === item.productId && !product.archived));
         return <View key={group.id} style={[styles.category, SOFT_SHADOW, android && styles.nativeCategory]}>
           <View style={styles.categoryHeader}>
             {android ? <Button label={group.name} expanded={isOpen} icon={isOpen ? "chevronUp" : "chevronDown"} onPress={() => toggleExpanded(key)} /> : <Text style={styles.categoryName}>{group.name}</Text>}
@@ -106,13 +110,19 @@ export function ShoppingListTab({ book, onUpdate }: { book: ShoppingBook; onUpda
   return <View style={styles.page}>
     <Modal animationType="none" transparent visible={menu} onRequestClose={() => setMenu(false)}><View style={styles.overlay}>
       <Pressable accessibilityRole="button" accessibilityLabel="Close shopping options" onPress={() => setMenu(false)} style={StyleSheet.absoluteFill} />
-      <ActionMenu visible={menu} menuStyle={{ left: Math.max(12, Math.min(position.left, width - Math.min(340, width - 24) - 12)), top: Math.max(12, Math.min(position.top, height - 290)), width: Math.min(340, width - 24), minWidth: 0 }} actions={[
+      <ActionMenu visible={menu} menuStyle={{ left: Math.max(12, Math.min(position.left, width - Math.min(340, width - 24) - 12)), top: Math.max(12, Math.min(position.top, height - 340)), width: Math.min(340, width - 24), minWidth: 0 }} actions={[
         { id: "product", label: "Add a new product", icon: "shopping", onPress: () => open({ mode: "product" }) },
         { id: "add", label: "Add a product to the list", icon: "add", onPress: () => open({ mode: "addToList" }) },
         { id: "remove", label: "Remove a product from the list", icon: "removeHabit", onPress: () => open({ mode: "removeFromList" }) },
         { id: "supermarket", label: "Add a supermarket", icon: "add", onPress: () => open({ mode: "supermarket" }) },
+        { id: "delete", label: "Delete a saved item", icon: "removeHabit", onPress: () => { setMenu(false); setDeleteVisible(true); } },
       ]} />
     </View></Modal>
+    {deleteVisible ? <DeleteSavedItemModal groups={[
+      { kind: "product", label: "Product", items: book.products.filter((item) => !item.archived).map((item) => ({ id: item.id, label: item.name })) },
+      { kind: "supermarket", label: "Supermarket", items: book.supermarkets.filter((item) => !item.archived).map((item) => ({ id: item.id, label: item.name })) },
+      { kind: "location", label: "Inventory location", items: book.locations.filter((item) => !item.archived).map((item) => ({ id: item.id, label: item.name })) },
+    ]} onClose={() => setDeleteVisible(false)} onDelete={onDelete} /> : null}
     {editor ? <ShoppingEditorModal editor={editor} book={book} onSave={onUpdate} onClose={() => setEditor(undefined)} /> : null}
     {/* Suspend history while its optional stock-reversal dialog is open, then return to the updated list. */}
     {showHistory && !editor ? <TrackerDialog title="Bought history" description={`${history.length} bought ${history.length === 1 ? "item" : "items"}`}
@@ -123,7 +133,7 @@ export function ShoppingListTab({ book, onUpdate }: { book: ShoppingBook; onUpda
         <View style={styles.details}><Text style={styles.name}>{itemLabel(item)}</Text>
           <Text style={styles.note}>{item.boughtAt ? new Date(item.boughtAt).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) : "Earlier purchase"}</Text>
         </View>
-        <View style={styles.undoAction}><Button disabled={saving} label="Undo" icon="chevronLeft" variant="secondary" onPress={() => {
+        <View style={styles.undoAction}><Button disabled={saving || !book.products.some((product) => product.id === item.productId && !product.archived)} label="Undo" icon="chevronLeft" variant="secondary" onPress={() => {
           if (item.inventoryAddition) open({ mode: "unbuy", itemId: item.id });
           else void update({ type: "unbuy", itemId: item.id, reverseInventory: false }, "Item restored to the shopping list.");
         }} /></View>

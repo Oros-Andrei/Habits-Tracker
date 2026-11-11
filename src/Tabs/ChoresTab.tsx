@@ -4,6 +4,7 @@ import { ActionMenu } from "../Components/ActionMenu";
 import { Button } from "../Components/Button";
 import { Calendar } from "../Components/Calendar";
 import { ChorePlannerModal } from "../Components/ChorePlannerModal";
+import { DeleteSavedItemModal } from "../Components/AddEntryModal";
 import { choreDate, chorePlanDate, listChoreOccurrences, type ChoreOccurrence } from "../Resources/choreSchedule";
 import { getLocalDateKey } from "../Resources/trackerStorage";
 import { COLORS, SOFT_SHADOW } from "../Resources/theme";
@@ -12,17 +13,19 @@ import type { ChoreAction, TrackerEntry } from "../Resources/types";
 
 type Props = {
   entries: TrackerEntry[]; onCreate: () => void; onUpdate: (id: string, action: ChoreAction) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
   reminderNotice?: string;
 };
 
 // Match the requested three-column desktop layout and stack list, today, then calendar on Android.
-export function ChoresTab({ entries, onCreate, onUpdate, reminderNotice }: Props) {
+export function ChoresTab({ entries, onCreate, onUpdate, onDelete, reminderNotice }: Props) {
   const { width, height } = useWindowDimensions();
   const columns = Platform.OS === "web" && width >= 1200;
   const [today, setToday] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [visibleMonth, setVisibleMonth] = useState(() => new Date());
   const [menu, setMenu] = useState(false);
+  const [deleteVisible, setDeleteVisible] = useState(false);
   const [position, setPosition] = useState({ left: 12, top: 12 });
   const anchor = useRef<ComponentRef<typeof View>>(null);
   const [dialog, setDialog] = useState<{ mode: "add" | "remove" | "schedule" | "update"; entryId?: string; date: Date }>();
@@ -30,7 +33,7 @@ export function ChoresTab({ entries, onCreate, onUpdate, reminderNotice }: Props
   const savingRef = useRef(false);
   const [error, setError] = useState("");
   const todayKey = getLocalDateKey(today), selectedKey = getLocalDateKey(selectedDate);
-  const active = entries.filter((entry) => entry.choreTracking?.active);
+  const active = entries.filter((entry) => !entry.archived && entry.choreTracking?.active);
   // Only today's confirmed work belongs in the checklist; future plans stay in the calendar.
   const todayItems = listChoreOccurrences(entries, todayKey, todayKey);
   const preview = { includeEstimates: true, today: todayKey };
@@ -81,19 +84,22 @@ export function ChoresTab({ entries, onCreate, onUpdate, reminderNotice }: Props
       <Modal animationType="none" transparent visible={menu} onRequestClose={() => setMenu(false)}>
         <View style={styles.menuOverlay}>
           <Pressable accessibilityLabel="Close chore options" accessibilityRole="button" onPress={() => setMenu(false)} style={StyleSheet.absoluteFill} />
-          <ActionMenu visible={menu} menuStyle={{ left: Math.max(12, Math.min(position.left, width - Math.min(320, width - 24) - 12)), top: Math.max(12, Math.min(position.top, height - 310)), minWidth: 0, width: Math.min(320, width - 24) }} actions={[
+          <ActionMenu visible={menu} menuStyle={{ left: Math.max(12, Math.min(position.left, width - Math.min(320, width - 24) - 12)), top: Math.max(12, Math.min(position.top, height - 385)), minWidth: 0, width: Math.min(320, width - 24) }} actions={[
             { id: "create", label: "Add a new chore", icon: "chores", onPress: () => { setMenu(false); onCreate(); } },
             { id: "add", label: "Add a chore to the list", icon: "add", onPress: () => { setMenu(false); setDialog({ mode: "add", date: selectedDate }); } },
             { id: "remove", label: "Remove a chore", icon: "removeHabit", onPress: () => { setMenu(false); setDialog({ mode: "remove", date: selectedDate }); } },
             { id: "schedule", label: "Add a chore for a date", icon: "calendar", onPress: () => plan() },
             // Reuse the planner with explicit saved-plan selection for editing pending work.
             { id: "update", label: "Update chore plan", icon: "options", onPress: () => { setMenu(false); setDialog({ mode: "update", date: selectedDate }); } },
+            { id: "delete", label: "Delete a saved chore", icon: "removeHabit", onPress: () => { setMenu(false); setDeleteVisible(true); } },
           ]} />
         </View>
       </Modal>
+      {deleteVisible ? <DeleteSavedItemModal groups={[{ kind: "chore", label: "Chore", items: entries.filter((entry) => !entry.archived)
+        .map((entry) => ({ id: entry.id, label: entry.name })) }]} onClose={() => setDeleteVisible(false)} onDelete={(_kind, id) => onDelete(id)} /> : null}
       {dialog ? <ChorePlannerModal mode={dialog.mode} date={dialog.date} initialEntryId={dialog.entryId}
-        entries={dialog.mode === "remove" ? active : dialog.mode === "add" ? entries.filter((entry) => !entry.choreTracking?.active)
-          : dialog.mode === "update" ? active.filter((entry) => entry.choreTracking?.schedules.some((item) => chorePlanDate(entry, item, todayKey))) : entries}
+        entries={dialog.mode === "remove" ? active : dialog.mode === "add" ? entries.filter((entry) => !entry.archived && !entry.choreTracking?.active)
+          : dialog.mode === "update" ? active.filter((entry) => entry.choreTracking?.schedules.some((item) => chorePlanDate(entry, item, todayKey))) : entries.filter((entry) => !entry.archived)}
         onClose={() => setDialog(undefined)} onSave={onUpdate} /> : null}
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       {reminderNotice ? <Text accessibilityRole="alert" style={styles.note}>{reminderNotice}</Text> : null}

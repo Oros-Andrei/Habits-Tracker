@@ -118,8 +118,9 @@ export function parseExpenseBook(value: unknown, entries: TrackerEntry[]): Expen
   const loanAmounts = movements(book.loans);
   const loans = loanAmounts.map((item, index) => {
     const loan = book.loans[index];
-    if (!text(loan.name)) return fail();
-    return { ...item, name: loan.name };
+    if (!text(loan.name) || (loan.archived !== undefined && loan.archived !== true)) return fail();
+    // Keep deleted loan names beside repayment history without offering new repayments.
+    return { ...item, name: loan.name, ...(loan.archived ? { archived: true as const } : {}) };
   });
   const loanMap = new Map(loans.map((item) => [item.id, item]));
   const repaymentAmounts = movements(book.loanRepayments);
@@ -155,7 +156,7 @@ export function applyExpenseAction(current: TrackerSnapshot, action: ExpenseActi
     return item;
   };
   const expense = (expenseId: string) => {
-    const item = entries.find((item) => item.id === expenseId && item.type === "expenseType");
+    const item = entries.find((item) => item.id === expenseId && item.type === "expenseType" && !item.archived);
     if (!item) throw new Error("This expense is no longer available.");
     return item;
   };
@@ -185,7 +186,7 @@ export function applyExpenseAction(current: TrackerSnapshot, action: ExpenseActi
     const name = action.name.trim();
     if (!name) throw new Error("Enter an expense name.");
     // Reuse an unassigned saved name when possible without imposing name ownership.
-    const matching = entries.find((item) => item.type === "expenseType" && item.expenseCategoryId == null && normalized(item.name) === normalized(name));
+    const matching = entries.find((item) => item.type === "expenseType" && !item.archived && item.expenseCategoryId == null && normalized(item.name) === normalized(name));
     entries = matching ? entries.map((item) => item.id === matching.id ? { ...item, expenseCategoryId: action.categoryId, monthlyExpense: monthly } : item)
       : [...entries, { id: id(), name, type: "expenseType", expenseCategoryId: action.categoryId, monthlyExpense: monthly }];
   } else if (action.type === "assign") {
@@ -249,7 +250,7 @@ export function applyExpenseAction(current: TrackerSnapshot, action: ExpenseActi
   } else if (action.type === "repayLoan") {
     // Repayments reduce debt only: no expense record or account deduction is created.
     amount(action.amountBani); dated(action.date);
-    const loan = (book.loans ?? []).find((item) => item.id === action.loanId);
+    const loan = (book.loans ?? []).find((item) => item.id === action.loanId && !item.archived);
     if (!loan) throw new Error("This loan is no longer available.");
     const remaining = loanRemaining(book, loan.id, "9999-12-31");
     if (action.date < loan.date) throw new Error("Choose a repayment date on or after the loan date.");

@@ -1,5 +1,5 @@
 import { readStoredSnapshot, writeStoredSnapshot } from "./snapshotStore";
-import type { ChoreTracking, ExpenseBook, ShoppingBook, TrackerEntry, TrackerEntryType, TrackerSnapshot } from "./types";
+import type { ChoreTracking, ExpenseBook, SavedItemKind, ShoppingBook, TrackerEntry, TrackerEntryType, TrackerSnapshot } from "./types";
 import { emptyExpenseBook, parseExpenseBook, parseMonthlyExpense } from "./expenseLedger";
 import { emptyShoppingBook, mergeShoppingBook, parseShoppingBook } from "./shoppingLedger";
 
@@ -10,7 +10,7 @@ const HABIT_TRACKING_FIELDS = [["goodHabitTracking", "goodHabit"], ["badHabitTra
 export type TrackerBackup = {
   app: "habits-tracker";
   // New data formats must be rejected by older apps rather than silently discarded.
-  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
+  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
   exportedAt: string;
   entries: TrackerEntry[];
   expenses?: ExpenseBook;
@@ -78,6 +78,11 @@ function parseEntries(value: unknown): TrackerEntry[] {
       name: candidate.name,
       type: candidate.type as TrackerEntryType,
     };
+    // Validate the archive marker before a saved definition can be hidden by an import.
+    if (candidate.archived !== undefined) {
+      if (candidate.archived !== true) throw new Error("Invalid saved-item archive state.");
+      parsed.archived = true;
+    }
     for (const [field, type] of HABIT_TRACKING_FIELDS) {
       const tracking = candidate[field];
       if (tracking === undefined) continue;
@@ -152,13 +157,46 @@ export function saveTrackerSnapshot(snapshot: TrackerSnapshot): Promise<void> {
   return writeStoredSnapshot({ entries, expenses, shopping }, parseStoredSnapshot);
 }
 
-// Version 13 preserves optional stock expiry; older apps must reject rather than discard it.
+// Archive definitions in one snapshot while preserving dated completions, payments, and purchases.
+export function archiveSavedItem(current: TrackerSnapshot, kind: SavedItemKind, itemId: string): TrackerSnapshot {
+  if (["goodHabit", "badHabit", "chore", "expenseType"].includes(kind)) {
+    const entry = current.entries.find((item) => item.id === itemId && item.type === kind && !item.archived);
+    if (!entry) throw new Error("This saved item is no longer available.");
+    return { ...current, entries: current.entries.map((item) => item.id !== itemId ? item : {
+      ...item, archived: true as const,
+      ...(kind === "goodHabit" && item.goodHabitTracking ? { goodHabitTracking: { ...item.goodHabitTracking, active: false } } : {}),
+      ...(kind === "badHabit" && item.badHabitTracking ? { badHabitTracking: { ...item.badHabitTracking, active: false } } : {}),
+      ...(kind === "chore" && item.choreTracking ? { choreTracking: { ...item.choreTracking, active: false,
+        schedules: item.choreTracking.schedules.map((schedule) => ({ ...schedule, stopped: true })) } } : {}),
+      ...(kind === "expenseType" ? { expenseCategoryId: null, monthlyExpense: null } : {}),
+    }) };
+  }
+  if (kind === "expenseCategory") {
+    const category = current.expenses.categories.find((item) => item.id === itemId && item.active);
+    if (!category) throw new Error("This category is no longer available.");
+    return { ...current, entries: current.entries.map((item) => item.expenseCategoryId === itemId ? { ...item, expenseCategoryId: null, monthlyExpense: null } : item),
+      expenses: { ...current.expenses, categories: current.expenses.categories.map((item) => item.id === itemId ? { ...item, active: false } : item) } };
+  }
+  if (kind === "loan") {
+    if (!current.expenses.loans.some((item) => item.id === itemId && !item.archived)) throw new Error("This loan is no longer available.");
+    return { ...current, expenses: { ...current.expenses, loans: current.expenses.loans.map((item) => item.id === itemId ? { ...item, archived: true } : item) } };
+  }
+  const key = kind === "product" ? "products" : kind === "supermarket" ? "supermarkets" : "locations";
+  if (!current.shopping[key].some((item) => item.id === itemId && !item.archived)) throw new Error("This saved item is no longer available.");
+  return { ...current, shopping: { ...current.shopping,
+    [key]: current.shopping[key].map((item) => item.id === itemId ? { ...item, archived: true as const } : item),
+    // Pending checklist membership is discarded with a deleted product; bought history stays intact.
+    items: kind === "product" ? current.shopping.items.filter((item) => item.productId !== itemId || item.bought) : current.shopping.items,
+  } };
+}
+
+// Version 14 retains archived definitions and their historical links in portable backups.
 export function parseTrackerBackup(value: unknown): TrackerBackup {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("The selected file is not a valid Habits Tracker backup.");
   }
   const backup = value as Partial<TrackerBackup>;
-  if (backup.app !== "habits-tracker" || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].includes(backup.formatVersion as number) ||
+  if (backup.app !== "habits-tracker" || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].includes(backup.formatVersion as number) ||
       typeof backup.exportedAt !== "string") {
     throw new Error("This is not a supported Habits Tracker backup.");
   }
@@ -192,6 +230,8 @@ export function mergeTrackerEntries(current: TrackerEntry[], incoming: TrackerEn
   const merged = new Map(current.map((entry) => [entry.id, entry]));
   for (const entry of incoming) {
     const existing = merged.get(entry.id);
+    // Preserve the local tombstone and its complete history when an older backup shares its ID.
+    if (existing?.archived) { merged.set(entry.id, existing); continue; }
     // Legacy imports must not detach an already assigned expense just because the field was absent.
     let incomingEntry = entry.type === "expenseType" && existing?.type === "expenseType" && entry.expenseCategoryId === undefined && existing.expenseCategoryId !== undefined
       ? { ...entry, expenseCategoryId: existing.expenseCategoryId } : entry;
@@ -202,11 +242,13 @@ export function mergeTrackerEntries(current: TrackerEntry[], incoming: TrackerEn
     const field = entry.type === "goodHabit" ? "goodHabitTracking" : entry.type === "badHabit" ? "badHabitTracking" : entry.type === "chore" ? "choreTracking" : undefined;
     if (field && existing?.type === entry.type && existing[field] && entry[field] === undefined) {
       merged.set(entry.id, {
-        ...entry,
+        ...incomingEntry,
         [field]: existing[field],
+        ...(existing.archived || entry.archived ? { archived: true as const } : {}),
       });
     } else {
-      merged.set(entry.id, incomingEntry);
+      // Importing an older backup cannot resurrect a locally deleted definition.
+      merged.set(entry.id, existing?.archived ? { ...incomingEntry, archived: true } : incomingEntry);
     }
   }
   return Array.from(merged.values());
@@ -215,11 +257,21 @@ export function mergeTrackerEntries(current: TrackerEntry[], incoming: TrackerEn
 // Merge portable financial entities by ID, with imported income settings winning for the same month.
 export function mergeTrackerSnapshot(current: TrackerSnapshot, incoming: TrackerBackup): TrackerSnapshot {
   let entries = mergeTrackerEntries(current.entries, incoming.entries);
+  // An imported name must not reactivate a deleted habit, chore plan, or recurring expense.
+  entries = entries.map((item) => !item.archived ? item : {
+    ...item,
+    ...(item.goodHabitTracking ? { goodHabitTracking: { ...item.goodHabitTracking, active: false } } : {}),
+    ...(item.badHabitTracking ? { badHabitTracking: { ...item.badHabitTracking, active: false } } : {}),
+    ...(item.choreTracking ? { choreTracking: { ...item.choreTracking, active: false,
+      schedules: item.choreTracking.schedules.map((schedule) => ({ ...schedule, stopped: true })) } } : {}),
+    ...(item.type === "expenseType" ? { expenseCategoryId: null, monthlyExpense: null } : {}),
+  });
   // Old backups preserve newer quantities/dates; matching imported stock still replaces its quantity.
   const shopping = mergeShoppingBook(current.shopping, incoming.formatVersion >= 8 ? incoming.shopping : undefined, incoming.formatVersion < 11, incoming.formatVersion < 13);
   if (!incoming.expenses) return { entries, expenses: parseExpenseBook(current.expenses, entries), shopping };
   const merge = <T extends { id: string }>(local: T[], imported: T[]): T[] => [...new Map([...local, ...imported].map((item) => [item.id, item])).values()];
-  const categories = merge(current.expenses.categories, incoming.expenses.categories);
+  const categories = merge(current.expenses.categories, incoming.expenses.categories).map((item) =>
+    current.expenses.categories.some((saved) => saved.id === item.id && !saved.active) ? { ...item, active: false } : item);
   const inactive = new Set(categories.filter((item) => !item.active).map((item) => item.id));
   entries = entries.map((item) => item.expenseCategoryId && inactive.has(item.expenseCategoryId) ? { ...item, expenseCategoryId: null, monthlyExpense: null } : item);
   const incomes = [...new Map([...current.expenses.incomes, ...incoming.expenses.incomes].map((item) => [`${item.source}:${item.effectiveMonth}`, item])).values()];
@@ -233,7 +285,8 @@ export function mergeTrackerSnapshot(current: TrackerSnapshot, incoming: Tracker
   const expenses = parseExpenseBook({ categories, records: merge(current.expenses.records, importedRecords), incomes,
     extraIncomes: merge(current.expenses.extraIncomes ?? [], incoming.formatVersion >= 7 ? incoming.expenses.extraIncomes : []),
     savingsAdjustments: merge(current.expenses.savingsAdjustments ?? [], incoming.formatVersion >= 7 ? incoming.expenses.savingsAdjustments : []),
-    loans: merge(current.expenses.loans ?? [], incoming.formatVersion >= 7 ? incoming.expenses.loans : []),
+    loans: merge(current.expenses.loans ?? [], incoming.formatVersion >= 7 ? incoming.expenses.loans : []).map((item) =>
+      current.expenses.loans.find((saved) => saved.id === item.id && saved.archived) ?? item),
     loanRepayments: merge(current.expenses.loanRepayments ?? [], incoming.formatVersion >= 7 ? incoming.expenses.loanRepayments : []),
   }, entries);
   return { entries, expenses, shopping };

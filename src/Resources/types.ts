@@ -40,6 +40,8 @@ export type TrackerEntry = {
   id: string;
   name: string;
   type: TrackerEntryType;
+  // Keep a named tombstone so historical records remain readable after deletion.
+  archived?: true;
   goodHabitTracking?: HabitTracking;
   badHabitTracking?: HabitTracking;
   choreTracking?: ChoreTracking;
@@ -63,7 +65,7 @@ export type IncomeVersion = { id: string; source: IncomeSource; effectiveMonth: 
 // Dated account movements and debt records preserve history without changing expense totals.
 export type ExtraIncome = { id: string; date: string; amountBani: number };
 export type SavingsAdjustment = { id: string; date: string; amountBani: number };
-export type Loan = { id: string; name: string; date: string; amountBani: number };
+export type Loan = { id: string; name: string; date: string; amountBani: number; archived?: true };
 export type LoanRepayment = { id: string; loanId: string; date: string; amountBani: number };
 export type ExpenseBook = { categories: ExpenseCategory[]; records: ExpenseRecord[]; incomes: IncomeVersion[];
   extraIncomes: ExtraIncome[]; savingsAdjustments: SavingsAdjustment[]; loans: Loan[]; loanRepayments: LoanRepayment[] };
@@ -71,10 +73,12 @@ export type ExpenseBook = { categories: ExpenseCategory[]; records: ExpenseRecor
 export type StockUnit = "bottles" | "cans" | "units" | "grams";
 // Amounts to buy belong to checklist entries; legacy product amounts are retained only for migration.
 export type ShoppingQuantity = { amountMilli: number; unit: "grams" | "units" };
-export type ShoppingProduct = { id: string; name: string; quantity?: ShoppingQuantity };
-export type Supermarket = { id: string; name: string };
+export type ShoppingProduct = { id: string; name: string; quantity?: ShoppingQuantity; archived?: true };
+export type Supermarket = { id: string; name: string; archived?: true };
 export type ProductOffer = { id: string; productId: string; supermarketId: string; priceBani: number; salePriceBani: number | null };
-export type InventoryLocation = { id: string; name: string };
+export type InventoryLocation = { id: string; name: string; archived?: true };
+// Deletion targets definitions only; dated history retains its original IDs and names.
+export type SavedItemKind = TrackerEntryType | "expenseCategory" | "loan" | "product" | "supermarket" | "location";
 // Expiry is optional metadata on the existing stock entry, never a separate batch identity.
 export type InventoryStock = { id: string; productId: string; locationId: string; unit: StockUnit; quantityMilli: number; expiryDate: string | null };
 // List membership belongs to the product; optional legacy offer links retain existing purchase history.

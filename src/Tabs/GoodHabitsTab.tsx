@@ -3,7 +3,7 @@ import { AppState, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimens
 import { ActionMenu } from "../Components/ActionMenu";
 import { Button } from "../Components/Button";
 import { Calendar } from "../Components/Calendar";
-import { TrackerEntryPickerModal } from "../Components/AddEntryModal";
+import { DeleteSavedItemModal, TrackerEntryPickerModal } from "../Components/AddEntryModal";
 import { TrackerEntryList } from "../Components/TrackerEntryList";
 import { getLocalDateKey } from "../Resources/trackerStorage";
 import { COLORS, SOFT_SHADOW } from "../Resources/theme";
@@ -15,6 +15,7 @@ export type HabitTrackerTabProps = {
   habitType: HabitEntryType;
   onCreate: () => void;
   onUpdate: (id: string, action: HabitAction) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 };
 
 // Both tabs render the same controls and styles so their behavior cannot drift apart.
@@ -23,7 +24,7 @@ export function GoodHabitsTab(props: Omit<HabitTrackerTabProps, "habitType">) {
 }
 
 // Keep today's checklist above the calendar on Android and beside it on a wide browser.
-export function HabitTrackerTab({ entries, habitType, onCreate, onUpdate }: HabitTrackerTabProps) {
+export function HabitTrackerTab({ entries, habitType, onCreate, onUpdate, onDelete }: HabitTrackerTabProps) {
   const isGood = habitType === "goodHabit";
   const habitWord = isGood ? "good" : "bad";
   const trackingField = isGood ? "goodHabitTracking" : "badHabitTracking";
@@ -33,6 +34,7 @@ export function HabitTrackerTab({ entries, habitType, onCreate, onUpdate }: Habi
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   // Reveal add/remove pickers on demand and anchor a dismissible popup to the heading's Options button.
   const [editMode, setEditMode] = useState<"add" | "remove">();
+  const [deleteVisible, setDeleteVisible] = useState(false);
   const [optionsVisible, setOptionsVisible] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ left: 12, top: 12 });
   // Measure the mounted View element rather than its component function.
@@ -41,8 +43,8 @@ export function HabitTrackerTab({ entries, habitType, onCreate, onUpdate }: Habi
   const [error, setError] = useState("");
   const todayKey = getLocalDateKey(today);
   const selectedKey = getLocalDateKey(selectedDate);
-  const active = entries.filter((entry) => entry[trackingField]?.active);
-  const available = entries.filter((entry) => !entry[trackingField]?.active);
+  const active = entries.filter((entry) => !entry.archived && entry[trackingField]?.active);
+  const available = entries.filter((entry) => !entry.archived && !entry[trackingField]?.active);
   const completed = entries.filter((entry) => entry[trackingField]?.completedDates.includes(selectedKey));
   const pickerEntries = editMode === "remove" ? active : available;
   const menuWidth = Math.min(320, width - 24);
@@ -102,7 +104,7 @@ export function HabitTrackerTab({ entries, habitType, onCreate, onUpdate }: Habi
             menuStyle={{
               left: Math.max(12, Math.min(menuPosition.left, width - menuWidth - 12)),
               minWidth: 0,
-              top: Math.max(12, Math.min(menuPosition.top, height - 200)),
+              top: Math.max(12, Math.min(menuPosition.top, height - 275)),
               width: menuWidth,
             }}
             actions={[
@@ -110,10 +112,14 @@ export function HabitTrackerTab({ entries, habitType, onCreate, onUpdate }: Habi
               { id: "add", label: `Add a ${habitWord} habit to the list`, icon: "add", onPress: () => chooseMode("add") },
               // Keep removal visually distinct from dismissal in both habit menus.
               { id: "remove", label: "Remove a habit", icon: "removeHabit", onPress: () => chooseMode("remove") },
+              { id: "delete", label: "Delete a saved habit", icon: "removeHabit", onPress: () => { setOptionsVisible(false); setDeleteVisible(true); } },
             ]}
           />
         </View>
       </Modal>
+      {deleteVisible ? <DeleteSavedItemModal groups={[{ kind: habitType, label: `${isGood ? "Good" : "Bad"} habit`,
+        items: entries.filter((entry) => !entry.archived).map((entry) => ({ id: entry.id, label: entry.name })) }]}
+        onClose={() => setDeleteVisible(false)} onDelete={(_kind, id) => onDelete(id)} /> : null}
       {/* Membership actions use a closeable shared dialog instead of changing the daily-list card. */}
       {editMode ? (
         <TrackerEntryPickerModal

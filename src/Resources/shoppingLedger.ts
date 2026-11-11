@@ -75,11 +75,13 @@ export function parseShoppingBook(value: unknown): ShoppingBook {
       seen.add(item.id); return parse(item);
     });
   };
-  const named = (input: { id: string; name: string }[]) => {
+  const named = <T extends { id: string; name: string; archived?: true }>(input: T[]) => {
     const names = new Set<string>();
     return array(input, (item) => {
-      if (!text(item.name) || names.has(normalized(item.name))) return fail();
-      names.add(normalized(item.name)); return { id: item.id, name: item.name.trim() };
+      if (!text(item.name) || (item.archived !== undefined && item.archived !== true) || (!item.archived && names.has(normalized(item.name)))) return fail();
+      // Deleted names may be reused while their original records keep stable IDs.
+      if (!item.archived) names.add(normalized(item.name));
+      return { id: item.id, name: item.name.trim(), ...(item.archived ? { archived: true as const } : {}) } as T;
     });
   };
   const products = named(book.products).map((item, index) => ({ ...item,
@@ -140,18 +142,19 @@ export function applyShoppingAction(current: ShoppingBook, action: ShoppingActio
   const product = (productId: string | undefined, name: string) => {
     if (productId) {
       const saved = book.products.find((item) => item.id === productId);
-      if (!saved) throw new Error("This saved product is no longer available.");
+      if (!saved || saved.archived) throw new Error("This saved product is no longer available.");
       return saved;
     }
     if (!name.trim()) throw new Error("Enter a product name.");
-    const saved = book.products.find((item) => normalized(item.name) === normalized(name));
+    const saved = book.products.find((item) => !item.archived && normalized(item.name) === normalized(name));
     if (saved) return saved;
     const created = { id: id(), name: name.trim() };
     book = { ...book, products: [...book.products, created] }; return created;
   };
   const offer = (offerId: string) => {
     const saved = book.offers.find((item) => item.id === offerId);
-    if (!saved) throw new Error("Choose a saved product and supermarket.");
+    if (!saved || book.products.some((item) => item.id === saved.productId && item.archived) ||
+        book.supermarkets.some((item) => item.id === saved.supermarketId && item.archived)) throw new Error("Choose a saved product and supermarket.");
     return saved;
   };
   const listItem = (itemId: string) => {
@@ -163,7 +166,7 @@ export function applyShoppingAction(current: ShoppingBook, action: ShoppingActio
     if (!validMoney(price) || (sale !== null && (!validMoney(sale) || sale >= price))) throw new Error("Enter a regular price and an optional sale price below it.");
   };
   const addStock = (productId: string, locationId: string, unit: StockUnit, quantityMilli: number, expiryDate?: string | null): InventoryStock => {
-    if (!book.locations.some((item) => item.id === locationId)) throw new Error("Choose an inventory location.");
+    if (!book.locations.some((item) => item.id === locationId && !item.archived)) throw new Error("Choose an inventory location.");
     if (!validUnit(unit) || !validQuantity(quantityMilli, unit, true)) throw new Error("Enter a valid quantity and unit.");
     const saved = book.stock.find((item) => item.productId === productId && item.locationId === locationId && item.unit === unit);
     // An undated top-up preserves the saved date; selecting a new date updates this same entry.
@@ -176,18 +179,18 @@ export function applyShoppingAction(current: ShoppingBook, action: ShoppingActio
   if (action.type === "supermarket" || action.type === "location") {
     const key = action.type === "supermarket" ? "supermarkets" : "locations";
     if (!action.name.trim()) throw new Error(`Enter a ${action.type === "location" ? "storage location" : "supermarket"} name.`);
-    if (book[key].some((item) => normalized(item.name) === normalized(action.name))) throw new Error("This name is already saved.");
+    if (book[key].some((item) => !item.archived && normalized(item.name) === normalized(action.name))) throw new Error("This name is already saved.");
     book = { ...book, [key]: [...book[key], { id: id(), name: action.name.trim() }] };
   } else if (action.type === "product") {
     if ("quantity" in action && action.quantity !== undefined) throw new Error("Set the quantity when adding the product to the shopping list.");
     // Saving a name is independent of assigning a supermarket and its prices.
     if (action.supermarketId === undefined) {
       if (action.priceBani !== undefined || action.salePriceBani !== undefined) throw new Error("Choose a supermarket when saving a supermarket price.");
-      if (!action.productId && book.products.some((item) => normalized(item.name) === normalized(action.name))) throw new Error("This product is already saved. Add it to the shopping list instead.");
+      if (!action.productId && book.products.some((item) => !item.archived && normalized(item.name) === normalized(action.name))) throw new Error("This product is already saved. Add it to the shopping list instead.");
       product(action.productId, action.name);
     } else {
       prices(action.priceBani!, action.salePriceBani!);
-      if (!book.supermarkets.some((item) => item.id === action.supermarketId)) throw new Error("Choose a supermarket first.");
+      if (!book.supermarkets.some((item) => item.id === action.supermarketId && !item.archived)) throw new Error("Choose a supermarket first.");
       const saved = product(action.productId, action.name);
       if (book.offers.some((item) => item.productId === saved.id && item.supermarketId === action.supermarketId)) throw new Error("This product already has a price at this supermarket. Use its price settings to change it.");
       book = { ...book, offers: [...book.offers, { id: id(), productId: saved.id, supermarketId: action.supermarketId, priceBani: action.priceBani!, salePriceBani: action.salePriceBani! }] };
@@ -214,6 +217,7 @@ export function applyShoppingAction(current: ShoppingBook, action: ShoppingActio
   } else if (action.type === "unbuy") {
     const item = listItem(action.itemId);
     if (!item.bought) throw new Error("This item is not marked as bought.");
+    if (book.products.some((product) => product.id === item.productId && product.archived)) throw new Error("This product was deleted; its purchase stays in history.");
     // Undo restores the original entry and amount without merging different shopping trips.
     if (book.items.some((saved) => saved.id !== item.id && !saved.bought && saved.productId === item.productId)) {
       throw new Error("This product is already on the active list. Remove that entry before undoing this purchase.");
@@ -231,7 +235,8 @@ export function applyShoppingAction(current: ShoppingBook, action: ShoppingActio
     addStock(saved.id, action.locationId, action.unit, action.quantityMilli, action.expiryDate);
   } else if (action.type === "setStock") {
     const stock = book.stock.find((item) => item.id === action.stockId);
-    if (!stock || !validQuantity(action.quantityMilli, stock.unit)) throw new Error("Enter a valid stock quantity of zero or more.");
+    if (!stock || !validQuantity(action.quantityMilli, stock.unit) || book.products.some((item) => item.id === stock.productId && item.archived) ||
+        book.locations.some((item) => item.id === stock.locationId && item.archived)) throw new Error("Enter a valid stock quantity of zero or more.");
     // Quantity edits preserve expiry unless the form explicitly supplies a date or clears it.
     book = { ...book, stock: book.stock.map((item) => item.id === stock.id ? { ...item, quantityMilli: action.quantityMilli,
       expiryDate: action.expiryDate === undefined ? item.expiryDate : parseStockExpiry(action.expiryDate) } : item) };
@@ -248,7 +253,9 @@ export function mergeShoppingBook(current: ShoppingBook, incoming: ShoppingBook 
   // Keep hidden legacy amounts, while older formats cannot overwrite quantities now chosen per list entry.
   const products = imported.products.map((item) => {
     const existing = local.products.find((saved) => saved.id === item.id);
-    return item.quantity === undefined && existing?.quantity ? { ...item, quantity: existing.quantity } : item;
+    if (existing?.archived) return existing;
+    return { ...item, ...(item.quantity === undefined && existing?.quantity ? { quantity: existing.quantity } : {}),
+    };
   });
   const items = imported.items.map((item) => {
     const existing = local.items.find((saved) => saved.id === item.id);
@@ -259,6 +266,10 @@ export function mergeShoppingBook(current: ShoppingBook, incoming: ShoppingBook 
     const existing = local.stock.find((saved) => saved.id === item.id);
     return preserveStockExpiry && existing ? { ...item, expiryDate: existing.expiryDate } : item;
   });
-  return parseShoppingBook({ products: merge(local.products, products), supermarkets: merge(local.supermarkets, imported.supermarkets),
-    offers: merge(local.offers, imported.offers), items: merge(local.items, items), locations: merge(local.locations, imported.locations), stock: merge(local.stock, stock) });
+  const stickyArchive = <T extends { id: string; archived?: true }>(saved: T[], importedItems: T[]) => merge(saved, importedItems).map((item) =>
+    saved.find((localItem) => localItem.id === item.id && localItem.archived) ?? item);
+  const mergedProducts = merge(local.products, products);
+  return parseShoppingBook({ products: mergedProducts, supermarkets: stickyArchive(local.supermarkets, imported.supermarkets),
+    offers: merge(local.offers, imported.offers), items: merge(local.items, items).filter((item) => item.bought || !mergedProducts.some((product) => product.id === item.productId && product.archived)),
+    locations: stickyArchive(local.locations, imported.locations), stock: merge(local.stock, stock) });
 }

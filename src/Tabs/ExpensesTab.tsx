@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ComponentRef } from "rea
 import { AppState, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { ActionMenu } from "../Components/ActionMenu";
-import { TrackerDialog } from "../Components/AddEntryModal";
+import { DeleteSavedItemModal, TrackerDialog } from "../Components/AddEntryModal";
 import { Button } from "../Components/Button";
 import { Calendar } from "../Components/Calendar";
 import { ExpenseEditorModal, type ExpenseEditorMode } from "../Components/ExpenseEditorModal";
@@ -12,15 +12,16 @@ import { expenseCategories, expenseMonthSummary, expenseSourceLabel, formatLei, 
 import { getLocalDateKey } from "../Resources/trackerStorage";
 import { COLORS, GRADIENTS, SOFT_SHADOW } from "../Resources/theme";
 import { FONT_FAMILY } from "../Resources/typography";
-import type { ExpenseAction, ExpenseBook, ExpenseRecord, IncomeSource, TrackerEntry } from "../Resources/types";
+import type { ExpenseAction, ExpenseBook, ExpenseRecord, IncomeSource, SavedItemKind, TrackerEntry } from "../Resources/types";
 
-type ExpensesTabProps = { entries: TrackerEntry[]; book: ExpenseBook; onUpdate: (action: ExpenseAction) => Promise<void> };
+type ExpensesTabProps = { entries: TrackerEntry[]; book: ExpenseBook; onUpdate: (action: ExpenseAction) => Promise<void>;
+  onDelete: (kind: SavedItemKind, id: string) => Promise<void> };
 type Editor = { mode: ExpenseEditorMode; source?: IncomeSource; categoryId?: string; expenseId?: string; recordId?: string; loanId?: string };
 // Reuse the same balance card for recurring income, extra income, and the separate Savings account.
 type BudgetCard = { label: string; value: number; note: string; source?: IncomeSource; action?: Editor; actionLabel?: string };
 
 // One selected month drives budgets, the payment list, calendar, and category pie on both platforms.
-export function ExpensesTab({ entries, book, onUpdate }: ExpensesTabProps) {
+export function ExpensesTab({ entries, book, onUpdate, onDelete }: ExpensesTabProps) {
   const { width, height } = useWindowDimensions();
   // Android uses the approved category-focused layout with full-width independent disclosures.
   const android = Platform.OS === "android";
@@ -34,6 +35,7 @@ export function ExpensesTab({ entries, book, onUpdate }: ExpensesTabProps) {
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [month, setMonth] = useState(() => getLocalDateKey(new Date()).slice(0, 7));
   const [menu, setMenu] = useState(false);
+  const [deleteVisible, setDeleteVisible] = useState(false);
   const [position, setPosition] = useState({ left: 12, top: 12 });
   const anchor = useRef<ComponentRef<typeof View>>(null);
   const [editor, setEditor] = useState<Editor>();
@@ -134,9 +136,15 @@ export function ExpensesTab({ entries, book, onUpdate }: ExpensesTabProps) {
             // Regular categories use direct paid entries; membership removal is for recurring items.
             { id: "unassign", label: "Remove a monthly expense", icon: "removeHabit", onPress: () => open({ mode: "unassign" }) },
             { id: "removeCategory", label: "Remove a category", icon: "removeHabit", onPress: () => open({ mode: "removeCategory" }) },
+            { id: "delete", label: "Delete a saved item", icon: "removeHabit", onPress: () => { setMenu(false); setDeleteVisible(true); } },
           ]} />
         </View>
       </Modal>
+      {deleteVisible ? <DeleteSavedItemModal groups={[
+        { kind: "expenseType", label: "Expense name", items: entries.filter((item) => !item.archived).map((item) => ({ id: item.id, label: item.name })) },
+        { kind: "expenseCategory", label: "Category", items: book.categories.filter((item) => item.active && !isMonthlyCategory(item)).map((item) => ({ id: item.id, label: item.name })) },
+        { kind: "loan", label: "Loan", items: book.loans.filter((item) => !item.archived).map((item) => ({ id: item.id, label: item.name })) },
+      ]} onClose={() => setDeleteVisible(false)} onDelete={onDelete} /> : null}
       {editor ? <ExpenseEditorModal mode={editor.mode} entries={entries} book={book}
         date={["savings", "loan", "repayLoan"].includes(editor.mode) ? new Date() : selectedDate} source={editor.source}
         initialCategoryId={editor.categoryId} initialExpenseId={editor.expenseId} recordId={editor.recordId} loanId={editor.loanId} onSave={onUpdate} onClose={() => setEditor(undefined)} /> : null}
@@ -226,7 +234,7 @@ export function ExpensesTab({ entries, book, onUpdate }: ExpensesTabProps) {
                 <Button icon="add" iconOnly label="Add a loan" onPress={() => open({ mode: "loan" })} variant="secondary" />
               </View>
               {!android || loansExpanded ? <View style={[styles.categoryContents, android && styles.androidCategoryContents]}>
-                {(book.loans ?? []).filter((loan) => loan.date <= summary.asOf).map((loan) => {
+                {(book.loans ?? []).filter((loan) => !loan.archived && loan.date <= summary.asOf).map((loan) => {
                   const remaining = loanRemaining(book, loan.id, summary.asOf);
                   return <View key={loan.id} style={styles.expenseChip}>
                     <View style={styles.details}><Text style={styles.name}>{loan.name}</Text><Text style={styles.note}>{formatLei(remaining)}</Text></View>

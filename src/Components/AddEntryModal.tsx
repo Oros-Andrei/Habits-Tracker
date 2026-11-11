@@ -1,5 +1,5 @@
-import { useRef, useState, type ReactNode } from "react";
-import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
+import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Button } from "./Button";
 import { Dropdown } from "./Dropdown";
 import { ScrollArea } from "./ScrollArea";
@@ -7,7 +7,34 @@ import { SectionIcon, type SectionIconName } from "./SectionIcon";
 import { TextBox } from "./TextBox";
 import { COLORS, SOFT_SHADOW, SURFACE_SHADOW } from "../Resources/theme";
 import { FONT_FAMILY } from "../Resources/typography";
-import type { HabitEntryType, TrackerEntry, TrackerEntryType } from "../Resources/types";
+import type { HabitEntryType, SavedItemKind, TrackerEntry, TrackerEntryType } from "../Resources/types";
+
+// Measure the native modal window against the keyboard edge; Samsung keyboards do not reliably resize it.
+function useDialogKeyboardGap() {
+  const overlay = useRef<ComponentRef<typeof View>>(null);
+  const keyboardTop = useRef<number | undefined>(undefined);
+  const [bottomGap, setBottomGap] = useState(0);
+  const measure = () => {
+    if (Platform.OS !== "android") return;
+    overlay.current?.measureInWindow((_x, y, _width, height) => {
+      const gap = keyboardTop.current === undefined ? 0 : Math.max(0, y + height - keyboardTop.current + 12);
+      setBottomGap((current) => current === gap ? current : gap);
+    });
+  };
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    // A second dialog may mount while the keyboard is already open and emit no new show event.
+    const existingKeyboard = Keyboard.metrics();
+    if (existingKeyboard) { keyboardTop.current = existingKeyboard.screenY; requestAnimationFrame(measure); }
+    const shown = Keyboard.addListener("keyboardDidShow", (event) => {
+      keyboardTop.current = event.endCoordinates.screenY;
+      requestAnimationFrame(measure);
+    });
+    const hidden = Keyboard.addListener("keyboardDidHide", () => { keyboardTop.current = undefined; setBottomGap(0); });
+    return () => { shown.remove(); hidden.remove(); };
+  }, []);
+  return { overlay, bottomGap, measure };
+}
 
 type AddEntryModalProps = {
   visible: boolean;
@@ -26,6 +53,7 @@ const TYPE_OPTIONS: { type: TrackerEntryType; label: string; icon: SectionIconNa
 
 // One shared form creates named entries for the four requested tracker sections.
 export function AddEntryModal({ visible, fixedType, onClose, onSave }: AddEntryModalProps) {
+  const keyboard = useDialogKeyboardGap();
   const [type, setType] = useState<TrackerEntryType>();
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -67,9 +95,9 @@ export function AddEntryModal({ visible, fixedType, onClose, onSave }: AddEntryM
   if (!visible) return null;
 
   const content = (
-    <View style={styles.overlay}>
+    <View ref={keyboard.overlay} onLayout={keyboard.measure} style={[styles.overlay, Platform.OS === "android" && { paddingBottom: 18 + keyboard.bottomGap }]}>
       <Pressable accessibilityLabel="Close add dialog" onPress={handleClose} style={StyleSheet.absoluteFill} />
-      <KeyboardAvoidingView behavior={Platform.OS === "android" ? "height" : Platform.OS === "ios" ? "padding" : undefined} style={[styles.center, Platform.OS === "android" && styles.keyboardGap]}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.center}>
         <View accessibilityViewIsModal style={[styles.card, SURFACE_SHADOW]}>
           {/* Dismissal is explicit, with an X beside the title instead of closing on Save. */}
           <View style={styles.dialogHeader}>
@@ -131,12 +159,13 @@ export function TrackerDialog({ title, description, children, footer, onClose, c
   onClose: () => void;
   closeLabel?: string;
 }) {
+  const keyboard = useDialogKeyboardGap();
   return (
     <Modal animationType="none" onRequestClose={onClose} transparent visible>
-      <View style={styles.overlay}>
+      <View ref={keyboard.overlay} onLayout={keyboard.measure} style={[styles.overlay, Platform.OS === "android" && { paddingBottom: 18 + keyboard.bottomGap }]}>
         <Pressable accessibilityLabel={closeLabel} accessibilityRole="button" onPress={onClose} style={StyleSheet.absoluteFill} />
         {/* Keep the shared dialog centered in the visible area with room above the keyboard. */}
-        <KeyboardAvoidingView behavior={Platform.OS === "android" ? "height" : Platform.OS === "ios" ? "padding" : undefined} style={[styles.center, Platform.OS === "android" && styles.keyboardGap]}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.center}>
           <View accessibilityViewIsModal style={[styles.card, styles.dialogCard, SURFACE_SHADOW]}>
             {/* Shared dialogs expose the same top-right dismissal action as creation. */}
             <View style={styles.dialogHeader}>
@@ -225,12 +254,49 @@ export function TrackerEntryPickerModal({ entries, mode, habitType = "goodHabit"
   );
 }
 
+// One confirmation flow archives saved definitions without offering deletion of transaction history.
+export function DeleteSavedItemModal({ groups, onClose, onDelete }: {
+  groups: { kind: SavedItemKind; label: string; items: { id: string; label: string }[] }[];
+  onClose: () => void;
+  onDelete: (kind: SavedItemKind, id: string) => Promise<void>;
+}) {
+  const [kind, setKind] = useState<SavedItemKind>(groups[0]?.kind);
+  const [itemId, setItemId] = useState<string>();
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const pending = useRef(false);
+  const group = groups.find((item) => item.kind === kind);
+  const selected = group?.items.find((item) => item.id === itemId);
+  const close = () => { if (!pending.current) onClose(); };
+  const submit = async () => {
+    if (!selected || pending.current) return;
+    if (!confirming) { setConfirming(true); return; }
+    pending.current = true; setSaving(true); setError("");
+    try { await onDelete(kind, selected.id); onClose(); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : "Could not delete this saved item."); }
+    finally { pending.current = false; setSaving(false); }
+  };
+  return <TrackerDialog title="Delete a saved item" description="This removes the saved item from active choices. Past history remains available."
+    onClose={close} footer={<View style={styles.actions}>
+      <Button disabled={saving} icon="close" label="Cancel" onPress={close} variant="secondary" />
+      <Button disabled={!selected || saving} icon="removeHabit" label={confirming ? "Confirm delete" : "Delete item"} onPress={submit} />
+    </View>}>
+    {groups.length > 1 ? <Dropdown label="Item type" value={kind} onChange={(value) => { setKind(value as SavedItemKind); setItemId(undefined); setConfirming(false); }}
+      options={groups.map((item) => ({ label: item.label, value: item.kind }))} /> : null}
+    {group?.items.length ? <Dropdown label={group.label} placeholder="Choose a saved item" value={itemId}
+      onChange={(value) => { setItemId(value); setConfirming(false); }} options={group.items.map((item) => ({ label: item.label, value: item.id }))} />
+      : <Text style={styles.description}>No saved items to delete.</Text>}
+    {confirming && selected ? <Text style={styles.warning}>Delete “{selected.label}” from your saved items? Its past history will remain.</Text> : null}
+    {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+  </TrackerDialog>;
+}
+
 const styles = StyleSheet.create({
   // Keep one dimmed surface behind each dialog without an Android-wide elevation shadow.
   // Native modal windows already sit above the app; a full-screen elevation creates backdrop artifacts.
   overlay: { alignItems: "center", backgroundColor: "rgba(0,0,0,0.32)", bottom: 0, justifyContent: "center", left: 0, padding: 18, position: "absolute", right: 0, top: 0, zIndex: 100 },
   center: { alignItems: "center", flex: 1, justifyContent: "center", width: "100%" },
-  keyboardGap: { paddingBottom: 12 },
   card: { backgroundColor: COLORS.surface, borderColor: "#E6DED4", borderRadius: 24, borderWidth: 1, gap: 10, maxHeight: "100%", maxWidth: 460, padding: 20, width: "100%", zIndex: 1 },
   // Limit long habit lists and open dropdowns to the available dialog space.
   dialogCard: { maxHeight: "100%" },
@@ -242,7 +308,8 @@ const styles = StyleSheet.create({
   closeSlot: { flexDirection: "row", width: 36 },
   success: { color: COLORS.gradientGreen, fontFamily: FONT_FAMILY.medium, fontSize: 14 },
   title: { color: COLORS.primary, fontFamily: FONT_FAMILY.extraBold, fontSize: 24 },
-  description: { color: COLORS.mutedText, fontFamily: FONT_FAMILY.regular, fontSize: 14, marginTop: -7 },
+  // Avoid the negative inset that clipped the first line inside Android scroll views.
+  description: { color: COLORS.mutedText, fontFamily: FONT_FAMILY.regular, fontSize: 14 },
   sectionPicker: { gap: 10 },
   sectionLabel: { color: COLORS.primary, fontFamily: FONT_FAMILY.bold, fontSize: 14 },
   optionsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
@@ -253,4 +320,5 @@ const styles = StyleSheet.create({
   typeLabelSelected: { fontFamily: FONT_FAMILY.bold },
   actions: { flexDirection: "row", gap: 10, marginTop: 4 },
   error: { color: COLORS.gradientPlum, fontFamily: FONT_FAMILY.medium, fontSize: 13 },
+  warning: { color: COLORS.gradientPlum, fontFamily: FONT_FAMILY.bold, fontSize: 14 },
 });

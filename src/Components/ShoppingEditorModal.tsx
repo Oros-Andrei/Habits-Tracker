@@ -48,11 +48,11 @@ export function ShoppingEditorModal({ editor, book, onSave, onClose }: Props) {
   const [success, setSuccess] = useState("");
   const productName = (id?: string) => { const product = book.products.find((item) => item.id === id); return product ? shoppingProductLabel(product) : ""; };
   const supermarketName = (id?: string) => book.supermarkets.find((item) => item.id === id)?.name ?? "";
-  const chosenProduct = productId === "" ? !!name.trim() : book.products.some((item) => item.id === productId);
-  const supermarketChosen = book.supermarkets.some((item) => item.id === supermarketId);
-  const locationChosen = book.locations.some((item) => item.id === locationId);
+  const chosenProduct = productId === "" ? !!name.trim() : book.products.some((item) => item.id === productId && !item.archived);
+  const supermarketChosen = book.supermarkets.some((item) => item.id === supermarketId && !item.archived);
+  const locationChosen = book.locations.some((item) => item.id === locationId && !item.archived);
   // Any saved product can join the list, even before it has a supermarket or a price.
-  const addable = book.products.filter((item) => !book.items.some((listed) => !listed.bought && listed.productId === item.id));
+  const addable = book.products.filter((item) => !item.archived && !book.items.some((listed) => !listed.bought && listed.productId === item.id));
   const addition = listItem?.inventoryAddition;
   const addedStock = book.stock.find((item) => item.id === addition?.stockId);
   const canReverse = !!addition && !!addedStock && addedStock.quantityMilli >= addition.quantityMilli;
@@ -122,13 +122,13 @@ export function ShoppingEditorModal({ editor, book, onSave, onClose }: Props) {
     {mode === "supermarket" || mode === "location" || mode === "product" ? <TextBox disabled={saving} label={mode === "supermarket" ? "Supermarket name" : mode === "product" ? "Product name" : "Location name"}
       value={name} onChangeText={(value) => { setName(value); setSuccess(""); }} placeholder={mode === "supermarket" ? "Lidl" : mode === "product" ? "Milk" : "Fridge, Cellar, Pantry…"} /> : null}
     {mode === "offer" ? <>
-      <Dropdown disabled={saving} label="Supermarket" placeholder="Choose a supermarket" options={book.supermarkets.map((item) => ({ label: item.name, value: item.id }))}
+      <Dropdown disabled={saving} label="Supermarket" placeholder="Choose a supermarket" options={book.supermarkets.filter((item) => !item.archived).map((item) => ({ label: item.name, value: item.id }))}
         value={supermarketId} onChange={setSupermarketId} />
-      {!book.supermarkets.length ? <Text style={styles.note}>Add a supermarket using Options first.</Text> : null}
+      {!book.supermarkets.some((item) => !item.archived) ? <Text style={styles.note}>Add a supermarket using Options first.</Text> : null}
     </> : null}
     {selectingProduct ? <>
       <Dropdown disabled={saving} label="Product" value={productId} onChange={(value) => { setProductId(value); setSuccess(""); }}
-        options={[{ label: "Create a new product", value: "" }, ...book.products.map((item) => ({ label: shoppingProductLabel(item), value: item.id }))]} />
+        options={[{ label: "Create a new product", value: "" }, ...book.products.filter((item) => !item.archived).map((item) => ({ label: shoppingProductLabel(item), value: item.id }))]} />
       {productId === "" ? <TextBox disabled={saving} label="Product name" value={name} onChangeText={(value) => { setName(value); setSuccess(""); }} placeholder="Milk" /> : null}
     </> : null}
     {mode === "price" && initialOffer ? <Text style={styles.note}>{productName(initialOffer.productId)} · {supermarketName(initialOffer.supermarketId)}</Text> : null}
@@ -164,8 +164,8 @@ export function ShoppingEditorModal({ editor, book, onSave, onClose }: Props) {
     {stockForm ? <>
       {mode === "setStock" ? <Text style={styles.note}>{productName(initialStock?.productId)} · {book.locations.find((item) => item.id === initialStock?.locationId)?.name}</Text> : <>
         <Dropdown disabled={saving} label="Inventory location" placeholder="Choose a location" value={locationId} onChange={setLocationId}
-          options={book.locations.map((item) => ({ label: item.name, value: item.id }))} />
-        {!book.locations.length ? <Text style={styles.note}>Add a storage location in Inventory first.</Text> : null}
+          options={book.locations.filter((item) => !item.archived).map((item) => ({ label: item.name, value: item.id }))} />
+        {!book.locations.some((item) => !item.archived) ? <Text style={styles.note}>Add a storage location in Inventory first.</Text> : null}
         <Dropdown disabled={saving} label="Unit" value={unit} options={STOCK_UNITS} onChange={(value) => setUnit(value as StockUnit)} />
       </>}
       <TextBox disabled={saving} label={mode === "setStock" ? `Current quantity (${initialStock?.unit})` : `Quantity to add (${unit})`}
