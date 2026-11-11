@@ -43,7 +43,8 @@ export function Button({ label, onPress, variant = "primary", icon, disabled = f
         checkbox && Platform.OS === "android" && styles.androidCheckboxButton,
         segment && selected && styles.segmentSelected,
         iconOnly && !scrollControl && styles.iconOnly,
-        disabled && styles.disabled,
+        // Saving still blocks presses, but Android clay controls must not flash as they disable.
+        disabled && !(Platform.OS === "android" && (checkbox || iconOnly)) && styles.disabled,
         pressed && !disabled && styles.pressed,
       ]}
     >

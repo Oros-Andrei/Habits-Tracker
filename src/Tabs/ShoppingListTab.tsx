@@ -67,7 +67,7 @@ export function ShoppingListTab({ book, onUpdate }: { book: ShoppingBook; onUpda
     </View>
   </View>;
   // Supermarkets and storage locations reuse the same independently expandable card layout.
-  const groups = (kind: "supermarket" | "location") => <View style={[styles.section, kind === "supermarket" && columns && styles.catalogColumn]}>
+  const groups = (kind: "supermarket" | "location") => <View style={[styles.section, android && styles.nativeSection, kind === "supermarket" && columns && styles.catalogColumn]}>
     <View style={styles.heading}><Text style={styles.title}>{kind === "supermarket" ? "Supermarkets" : "Inventory"}</Text>
       <Button disabled={saving} icon="add" iconOnly label={kind === "supermarket" ? "Add a supermarket" : "Add an inventory location"} onPress={() => open({ mode: kind })} variant="secondary" />
     </View>
@@ -151,7 +151,8 @@ const styles = StyleSheet.create({
   note: { color: COLORS.mutedText, fontFamily: FONT_FAMILY.regular, fontSize: 13, flexShrink: 1 }, priceRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 7 }, price: { color: COLORS.secondary, fontFamily: FONT_FAMILY.bold, fontSize: 14 },
   salePrice: { color: COLORS.mutedText, fontFamily: FONT_FAMILY.regular, fontSize: 13 }, board: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 14 },
   category: { backgroundColor: COLORS.surface, borderRadius: 22, padding: 12, gap: 8, flexGrow: 1, flexBasis: 240, minWidth: 0 }, categoryHeader: { alignItems: "center", flexDirection: "row", gap: 8, minHeight: 44 },
-  categoryName: { color: COLORS.primary, fontFamily: FONT_FAMILY.bold, fontSize: 17, flex: 1, minWidth: 0 }, categoryContents: { gap: 8 }, nativeBoard: { flexDirection: "column", alignItems: "stretch" }, nativeCategory: { flexBasis: "auto", flexGrow: 0 },
+  // Give closed Android groups the page width so their labels never collapse behind Add.
+  categoryName: { color: COLORS.primary, fontFamily: FONT_FAMILY.bold, fontSize: 17, flex: 1, minWidth: 0 }, categoryContents: { gap: 8 }, nativeSection: { alignSelf: "stretch", width: "100%" }, nativeBoard: { flexDirection: "column", alignItems: "stretch", width: "100%" }, nativeCategory: { alignSelf: "stretch", flexBasis: "auto", flexGrow: 0, width: "100%" },
   tabs: { backgroundColor: COLORS.mutedSurface, borderRadius: 18, flexDirection: "row", gap: 4, padding: 5 }, overlay: { flex: 1 }, error: { color: COLORS.gradientPlum, fontFamily: FONT_FAMILY.medium, fontSize: 14 }, notice: { color: COLORS.gradientGreen, fontFamily: FONT_FAMILY.medium, fontSize: 14 },
   // Keep history compact on the page and restore controls reachable on narrow phones.
   historySummary: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 },

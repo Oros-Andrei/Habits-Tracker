@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import { TrackerDialog } from "./AddEntryModal";
 import { Button } from "./Button";
 import { Dropdown } from "./Dropdown";
@@ -113,7 +113,7 @@ export function ShoppingEditorModal({ editor, book, onSave, onClose }: Props) {
   return <TrackerDialog title={titles[mode]} onClose={close} closeLabel="Close shopping dialog"
     description={mode === "product" ? "Save a product for shopping and inventory." : mode === "offer" ? "Save regular and sale prices for this supermarket." : mode === "buy" ? "Mark the item as bought, with an optional inventory update."
       : mode === "removeFromList" ? "Saved products, supermarket prices, and inventory are kept." : mode === "unbuy" ? "Uncheck the item and choose whether to reverse its inventory addition." : undefined}
-    footer={<View style={styles.actions}>
+    footer={<View style={[styles.actions, Platform.OS === "android" && mode === "buy" && styles.buyActions]}>
       <Button disabled={saving} icon="close" label="Close" onPress={close} variant="secondary" />
       <Button disabled={saving || !canSave} icon={mode === "removeFromList" ? "removeHabit" : mode === "buy" ? "check" : "save"}
         label={saving ? "Saving…" : mode === "buy" ? "Mark as bought" : mode === "unbuy" ? "Uncheck" : mode === "addToList" ? "Add to list" : mode === "removeFromList" ? "Remove" : "Save"}
@@ -188,7 +188,8 @@ export function ShoppingEditorModal({ editor, book, onSave, onClose }: Props) {
 
 const styles = StyleSheet.create({
   // Match existing tracker forms, including compact left-hand checkboxes and wrap-safe labels.
-  actions: { flexDirection: "row", gap: 10, marginTop: 4 }, checkboxRow: { alignItems: "center", flexDirection: "row", gap: 8 },
+  // The full purchase label needs its own row on narrow Android dialogs.
+  actions: { flexDirection: "row", gap: 10, marginTop: 4 }, buyActions: { flexDirection: "column" }, checkboxRow: { alignItems: "center", flexDirection: "row", gap: 8 },
   note: { color: COLORS.mutedText, fontFamily: FONT_FAMILY.regular, fontSize: 14, flexShrink: 1 },
   success: { color: COLORS.gradientGreen, fontFamily: FONT_FAMILY.medium, fontSize: 14 }, error: { color: COLORS.gradientPlum, fontFamily: FONT_FAMILY.medium, fontSize: 14 },
 });

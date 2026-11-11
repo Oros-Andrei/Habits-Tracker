@@ -66,47 +66,49 @@ export function AddEntryModal({ visible, fixedType, onClose, onSave }: AddEntryM
 
   if (!visible) return null;
 
-  return (
+  const content = (
     <View style={styles.overlay}>
       <Pressable accessibilityLabel="Close add dialog" onPress={handleClose} style={StyleSheet.absoluteFill} />
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.center}>
+      <KeyboardAvoidingView behavior={Platform.OS === "android" ? "height" : Platform.OS === "ios" ? "padding" : undefined} style={[styles.center, Platform.OS === "android" && styles.keyboardGap]}>
         <View accessibilityViewIsModal style={[styles.card, SURFACE_SHADOW]}>
           {/* Dismissal is explicit, with an X beside the title instead of closing on Save. */}
           <View style={styles.dialogHeader}>
             <Text style={[styles.title, styles.headerTitle]}>{fixedOption ? `Add ${fixedOption.label.toLowerCase()}` : "Add to tracker"}</Text>
             <View style={styles.closeSlot}><Button disabled={saving} icon="close" iconOnly label="Close add dialog" onPress={handleClose} variant="secondary" /></View>
           </View>
-          <Text style={styles.description}>
-            {fixedOption ? `Give this ${fixedOption.label.toLowerCase()} a name.` : "Choose a section and give it a name."}
-          </Text>
-          {/* Fixed-type forms omit the section selector so only the requested type can be created. */}
-          {!fixedType ? (
-            <View style={styles.sectionPicker}>
-              <Text style={styles.sectionLabel}>Choose a section</Text>
-              {/* Keep all entry types visible without a dropdown covering the name field. */}
-              <View style={styles.optionsGrid}>
-                {TYPE_OPTIONS.map((option) => {
-                  const selected = type === option.type;
-                  return (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityState={{ selected }}
-                      key={option.type}
-                      disabled={saving}
-                      onPress={() => { setType(option.type); setError(""); setSuccess(""); }}
-                      style={({ pressed }) => [styles.typeOption, selected && styles.typeOptionSelected, pressed && styles.typeOptionPressed]}
-                    >
-                      <SectionIcon name={option.icon} size={23} />
-                      <Text style={[styles.typeLabel, selected && styles.typeLabelSelected]}>{option.label}</Text>
-                    </Pressable>
-                  );
-                })}
+          <ScrollArea contentContainerStyle={styles.dialogContent} keyboardShouldPersistTaps="handled" nestedScrollEnabled scrollLabel="add entry" style={styles.dialogScroll}>
+            <Text style={styles.description}>
+              {fixedOption ? `Give this ${fixedOption.label.toLowerCase()} a name.` : "Choose a section and give it a name."}
+            </Text>
+            {/* Fixed-type forms omit the section selector so only the requested type can be created. */}
+            {!fixedType ? (
+              <View style={styles.sectionPicker}>
+                <Text style={styles.sectionLabel}>Choose a section</Text>
+                {/* Keep all entry types visible without a dropdown covering the name field. */}
+                <View style={styles.optionsGrid}>
+                  {TYPE_OPTIONS.map((option) => {
+                    const selected = type === option.type;
+                    return (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                        key={option.type}
+                        disabled={saving}
+                        onPress={() => { setType(option.type); setError(""); setSuccess(""); }}
+                        style={({ pressed }) => [styles.typeOption, selected && styles.typeOptionSelected, pressed && styles.typeOptionPressed]}
+                      >
+                        <SectionIcon name={option.icon} size={23} />
+                        <Text style={[styles.typeLabel, selected && styles.typeLabelSelected]}>{option.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
               </View>
-            </View>
-          ) : null}
-          <TextBox label="Name" onChangeText={(value) => { if (!savingRef.current) { setName(value); setError(""); setSuccess(""); } }} placeholder="Enter a name" value={name} />
-          {success ? <Text accessibilityLiveRegion="polite" style={styles.success}>{success}</Text> : null}
-          {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+            ) : null}
+            <TextBox label="Name" onChangeText={(value) => { if (!savingRef.current) { setName(value); setError(""); setSuccess(""); } }} placeholder="Enter a name" value={name} />
+            {success ? <Text accessibilityLiveRegion="polite" style={styles.success}>{success}</Text> : null}
+            {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+          </ScrollArea>
           <View style={styles.actions}>
             <Button disabled={saving} icon="close" label="Close" onPress={handleClose} variant="secondary" />
             {/* Pair the primary form action with its matching clay save icon. */}
@@ -116,6 +118,8 @@ export function AddEntryModal({ visible, fixedType, onClose, onSave }: AddEntryM
       </KeyboardAvoidingView>
     </View>
   );
+  // Use a native Android window to keep the Add backdrop above the page during keyboard resizing.
+  return Platform.OS === "android" ? <Modal animationType="none" onRequestClose={handleClose} transparent visible>{content}</Modal> : content;
 }
 
 // Use the shared custom scrollbar in bounded dialog bodies while keeping closing actions visible.
@@ -131,7 +135,8 @@ export function TrackerDialog({ title, description, children, footer, onClose, c
     <Modal animationType="none" onRequestClose={onClose} transparent visible>
       <View style={styles.overlay}>
         <Pressable accessibilityLabel={closeLabel} accessibilityRole="button" onPress={onClose} style={StyleSheet.absoluteFill} />
-        <View style={styles.center}>
+        {/* Keep the shared dialog centered in the visible area with room above the keyboard. */}
+        <KeyboardAvoidingView behavior={Platform.OS === "android" ? "height" : Platform.OS === "ios" ? "padding" : undefined} style={[styles.center, Platform.OS === "android" && styles.keyboardGap]}>
           <View accessibilityViewIsModal style={[styles.card, styles.dialogCard, SURFACE_SHADOW]}>
             {/* Shared dialogs expose the same top-right dismissal action as creation. */}
             <View style={styles.dialogHeader}>
@@ -148,7 +153,7 @@ export function TrackerDialog({ title, description, children, footer, onClose, c
               </View>
             )}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
@@ -221,10 +226,12 @@ export function TrackerEntryPickerModal({ entries, mode, habitType = "goodHabit"
 }
 
 const styles = StyleSheet.create({
-  // Use a root-level overlay so Add renders consistently on web and Android.
-  overlay: { alignItems: "center", backgroundColor: "rgba(0,0,0,0.32)", bottom: 0, elevation: 100, justifyContent: "center", left: 0, padding: 18, position: "absolute", right: 0, top: 0, zIndex: 100 },
+  // Keep one dimmed surface behind each dialog without an Android-wide elevation shadow.
+  // Native modal windows already sit above the app; a full-screen elevation creates backdrop artifacts.
+  overlay: { alignItems: "center", backgroundColor: "rgba(0,0,0,0.32)", bottom: 0, justifyContent: "center", left: 0, padding: 18, position: "absolute", right: 0, top: 0, zIndex: 100 },
   center: { alignItems: "center", flex: 1, justifyContent: "center", width: "100%" },
-  card: { backgroundColor: COLORS.surface, borderColor: "#E6DED4", borderRadius: 24, borderWidth: 1, gap: 10, maxWidth: 460, padding: 20, width: "100%", zIndex: 1 },
+  keyboardGap: { paddingBottom: 12 },
+  card: { backgroundColor: COLORS.surface, borderColor: "#E6DED4", borderRadius: 24, borderWidth: 1, gap: 10, maxHeight: "100%", maxWidth: 460, padding: 20, width: "100%", zIndex: 1 },
   // Limit long habit lists and open dropdowns to the available dialog space.
   dialogCard: { maxHeight: "100%" },
   dialogScroll: { flexGrow: 0 },
