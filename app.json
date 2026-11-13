@@ -2,7 +2,7 @@
   "expo": {
     "name": "Habits Tracker",
     "slug": "habits-tracker",
-    "version": "1.0.3",
+    "version": "1.0.5",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "platforms": [
@@ -11,7 +11,7 @@
     ],
     "android": {
       "package": "com.andre.habitstracker",
-      "versionCode": 4,
+      "versionCode": 6,
       "icon": "./src/Resources/app-launcher-badge.png",
       "allowBackup": false
     },

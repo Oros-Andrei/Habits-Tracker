@@ -14,7 +14,7 @@ import type { ExpenseAction, ExpenseBook, ExpenseSource, IncomeSource, TrackerEn
 
 // Regular expenses are paid on creation; only recurring items need list membership controls.
 // New money and debt forms retain the same guarded saving and closeable shared dialog.
-export type ExpenseEditorMode = "category" | "expense" | "unassign" | "removeCategory" | "income" | "removeRecord" | "monthly" | "extraIncome" | "savings" | "loan" | "repayLoan";
+export type ExpenseEditorMode = "category" | "expense" | "unassign" | "removeCategory" | "income" | "removeRecord" | "monthly" | "extraIncome" | "savings" | "addSavings" | "loan" | "repayLoan";
 type Props = { mode: ExpenseEditorMode; entries: TrackerEntry[]; book: ExpenseBook; date: Date; source?: IncomeSource;
   initialCategoryId?: string; initialExpenseId?: string; recordId?: string; loanId?: string;
   onSave: (action: ExpenseAction) => Promise<void>; onClose: () => void };
@@ -44,10 +44,10 @@ export function ExpenseEditorModal({ mode, entries, book, date, source = "salary
   const available = entries.filter((item) => categories.some((group) => group.id === item.expenseCategoryId && isMonthlyCategory(group)));
   const selectedLoan = (book.loans ?? []).find((item) => item.id === loanId);
   const remaining = selectedLoan ? loanRemaining(book, selectedLoan.id, today) : 0;
-  const moneyForm = ["extraIncome", "savings", "loan", "repayLoan"].includes(mode);
+  const moneyForm = ["extraIncome", "savings", "addSavings", "loan", "repayLoan"].includes(mode);
   const titles: Record<ExpenseEditorMode, string> = { category: "Add a category", expense: "Add an expense", unassign: "Remove a monthly expense",
     removeCategory: "Remove a category", income: source === "salary" ? "Set salary" : "Set meal tickets", removeRecord: "Remove a payment", monthly: "Set monthly expense",
-    extraIncome: "Add extra income", savings: "Set savings balance", loan: "Add a loan", repayLoan: "Record a loan payment" };
+    extraIncome: "Add extra income", savings: "Set savings balance", addSavings: "Add to savings", loan: "Add a loan", repayLoan: "Record a loan payment" };
   const removing = ["unassign", "removeCategory", "removeRecord"].includes(mode);
   const close = () => { if (!pending.current) onClose(); };
   const save = async () => {
@@ -68,6 +68,8 @@ export function ExpenseEditorModal({ mode, entries, book, date, source = "salary
       // Loan payments change only the outstanding debt; Savings is adjusted to the entered balance.
       else if (mode === "extraIncome") action = { type: "extraIncome", date: getLocalDateKey(paymentDate), amountBani: parseLei(amount) };
       else if (mode === "savings") action = { type: "setSavings", amountBani: parseLei(amount) };
+      // Deposits add the entered amount; setting the balance remains a separate action.
+      else if (mode === "addSavings") action = { type: "addSavings", amountBani: parseLei(amount) };
       else if (mode === "loan") action = { type: "createLoan", name, date: getLocalDateKey(paymentDate), amountBani: parseLei(amount) };
       else if (mode === "repayLoan") action = { type: "repayLoan", loanId: loanId ?? "", date: getLocalDateKey(paymentDate), amountBani: parseLei(amount) };
       else action = { type: "income", source, amountBani: parseLei(amount), payDay: Number(payDay) };
@@ -80,7 +82,7 @@ export function ExpenseEditorModal({ mode, entries, book, date, source = "salary
       else if (mode === "income") setSuccess(`${source === "salary" ? "Salary" : "Meal tickets"} saved from ${hasIncome ? nextMonth : month}.`);
       else if (mode === "monthly") setSuccess("Monthly amount and payment source saved.");
       else if (moneyForm) {
-        setSuccess(mode === "savings" ? `Savings balance set to ${formatLei(parseLei(amount))}.` : mode === "extraIncome" ? `${formatLei(parseLei(amount))} added to Total left for ${getLocalDateKey(paymentDate).slice(0, 7)}.`
+        setSuccess(mode === "savings" ? `Savings balance set to ${formatLei(parseLei(amount))}.` : mode === "addSavings" ? `${formatLei(parseLei(amount))} added to Savings.` : mode === "extraIncome" ? `${formatLei(parseLei(amount))} added to Total left for ${getLocalDateKey(paymentDate).slice(0, 7)}.`
           : mode === "loan" ? `Loan added: ${name.trim()}.` : `${formatLei(parseLei(amount))} paid towards ${selectedLoan?.name}.`);
         if (mode !== "savings") setAmount("");
         if (mode === "loan") setName("");
@@ -101,6 +103,7 @@ export function ExpenseEditorModal({ mode, entries, book, date, source = "salary
       : mode === "income" ? `Monthly amount in lei. ${hasIncome ? `Changes start on 01/${nextMonth.slice(5)}/${nextMonth.slice(0, 4)}.` : "Your first amount applies this month."}`
       : mode === "extraIncome" ? "Money received from family, gifts, or other sources. Added only to that month's Total left."
       : mode === "savings" ? "Set your current balance. Savings carries across months and is separate from Total left."
+      : mode === "addSavings" ? "Add an amount to Savings today. It carries across months and stays separate from Total left."
       : mode === "loan" || mode === "repayLoan" ? "Track what you owe. Loan payments do not affect your balances or spending." : undefined}
     footer={<View style={styles.actions}>
       <Button disabled={saving} icon="close" label="Close" onPress={close} variant="secondary" />
@@ -137,9 +140,10 @@ export function ExpenseEditorModal({ mode, entries, book, date, source = "salary
     {moneyForm ? <>
       {mode === "loan" ? <TextBox disabled={saving} label="Loan name" value={name} onChangeText={(value) => { setName(value); setSuccess(""); }} placeholder="Laptop loan" /> : null}
       {mode === "repayLoan" ? <Text style={styles.note}>{selectedLoan ? `${selectedLoan.name} · ${formatLei(remaining)} remaining` : "This loan is no longer available."}</Text> : null}
-      <TextBox disabled={saving} label={mode === "savings" ? "Current savings balance (lei)" : mode === "repayLoan" ? "Amount paid (lei)" : "Amount (lei)"}
+      <TextBox disabled={saving} label={mode === "savings" ? "Current savings balance (lei)" : mode === "addSavings" ? "Amount to add (lei)" : mode === "repayLoan" ? "Amount paid (lei)" : "Amount (lei)"}
         value={amount} onChangeText={(value) => { setAmount(value); setSuccess(""); }} placeholder="0,00" />
-      {mode !== "savings" ? <DatePicker inlineCalendar label={mode === "extraIncome" ? "Received date" : mode === "loan" ? "Loan date" : "Payment date"} value={paymentDate} onChange={setPaymentDate} /> : null}
+      {/* Savings changes are recorded for the local day when Save is pressed. */}
+      {mode !== "savings" && mode !== "addSavings" ? <DatePicker inlineCalendar label={mode === "extraIncome" ? "Received date" : mode === "loan" ? "Loan date" : "Payment date"} value={paymentDate} onChange={setPaymentDate} /> : null}
     </> : null}
     {mode === "removeRecord" && selectedRecord ? <Text style={styles.note}>{selectedRecord.expenseName} · {formatLei(selectedRecord.amountBani)} · {selectedRecord.date.split("-").reverse().join("/")}</Text> : null}
     {success ? <Text accessibilityLiveRegion="polite" style={styles.success}>{success}</Text> : null}

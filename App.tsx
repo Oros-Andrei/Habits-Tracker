@@ -123,7 +123,8 @@ export default function App() {
       const backup = {
         app: "habits-tracker" as const,
         // Version 13 adds optional inventory expiry without losing purchases or list quantities.
-        formatVersion: 14 as const,
+        // Version 15 includes supermarket brands so older apps reject an export they would discard.
+        formatVersion: 15 as const,
         exportedAt: new Date().toISOString(),
         entries: entriesRef.current,
         expenses: expensesRef.current,

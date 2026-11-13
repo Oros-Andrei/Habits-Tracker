@@ -91,7 +91,9 @@ export function ShoppingListTab({ book, onUpdate, onDelete }: { book: ShoppingBo
           </View>
           {isOpen ? <View style={styles.categoryContents}>
             {kind === "supermarket" ? offers.length ? offers.map((offer) => <View key={offer.id} style={styles.row}>
-              <View style={styles.details}><Text style={styles.name}>{productName(offer.productId)}</Text>{price(offer)}</View>
+              <View style={styles.details}><Text style={styles.name}>{productName(offer.productId)}</Text>
+                {/* Show the store's brand here; generic shopping and inventory names stay unchanged. */}
+                {offer.brand ? <Text style={styles.note}>Brand: {offer.brand}</Text> : null}{price(offer)}</View>
               <Button disabled={saving} icon="options" iconOnly label={`Update price for ${productName(offer.productId)} at ${group.name}`} onPress={() => open({ mode: "price", offerId: offer.id })} variant="secondary" />
               <Button disabled={saving || activeItems.some((item) => item.productId === offer.productId)} icon="add" iconOnly label={`Add ${productName(offer.productId)} to list`}
                 onPress={() => open({ mode: "addToList", productId: offer.productId })} variant="secondary" />

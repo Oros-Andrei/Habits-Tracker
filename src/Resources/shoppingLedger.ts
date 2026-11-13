@@ -92,8 +92,11 @@ export function parseShoppingBook(value: unknown): ShoppingBook {
   const offers = array(book.offers, (item) => {
     const pair = JSON.stringify([item.productId, item.supermarketId]);
     if (!productIds.has(item.productId) || !supermarketIds.has(item.supermarketId) || pairs.has(pair) || !validMoney(item.priceBani) ||
-        (item.salePriceBani !== null && (!validMoney(item.salePriceBani) || item.salePriceBani >= item.priceBani))) return fail();
-    pairs.add(pair); return { id: item.id, productId: item.productId, supermarketId: item.supermarketId, priceBani: item.priceBani, salePriceBani: item.salePriceBani };
+        (item.salePriceBani !== null && (!validMoney(item.salePriceBani) || item.salePriceBani >= item.priceBani)) ||
+        (item.brand !== undefined && (typeof item.brand !== "string" || !item.brand.trim()))) return fail();
+    // Keep the optional brand on this store's offer without changing the generic product.
+    pairs.add(pair); return { id: item.id, productId: item.productId, supermarketId: item.supermarketId, priceBani: item.priceBani, salePriceBani: item.salePriceBani,
+      ...(item.brand ? { brand: item.brand.trim() } : {}) };
   });
   pairs.clear();
   const stock = array(book.stock, (item) => {
@@ -185,7 +188,7 @@ export function applyShoppingAction(current: ShoppingBook, action: ShoppingActio
     if ("quantity" in action && action.quantity !== undefined) throw new Error("Set the quantity when adding the product to the shopping list.");
     // Saving a name is independent of assigning a supermarket and its prices.
     if (action.supermarketId === undefined) {
-      if (action.priceBani !== undefined || action.salePriceBani !== undefined) throw new Error("Choose a supermarket when saving a supermarket price.");
+      if (action.priceBani !== undefined || action.salePriceBani !== undefined || action.brand !== undefined) throw new Error("Choose a supermarket when saving a supermarket price.");
       if (!action.productId && book.products.some((item) => !item.archived && normalized(item.name) === normalized(action.name))) throw new Error("This product is already saved. Add it to the shopping list instead.");
       product(action.productId, action.name);
     } else {
@@ -193,11 +196,17 @@ export function applyShoppingAction(current: ShoppingBook, action: ShoppingActio
       if (!book.supermarkets.some((item) => item.id === action.supermarketId && !item.archived)) throw new Error("Choose a supermarket first.");
       const saved = product(action.productId, action.name);
       if (book.offers.some((item) => item.productId === saved.id && item.supermarketId === action.supermarketId)) throw new Error("This product already has a price at this supermarket. Use its price settings to change it.");
-      book = { ...book, offers: [...book.offers, { id: id(), productId: saved.id, supermarketId: action.supermarketId, priceBani: action.priceBani!, salePriceBani: action.salePriceBani! }] };
+      // Blank brand clears only the store-specific label, never the product's saved name.
+      const brand = action.brand?.trim();
+      book = { ...book, offers: [...book.offers, { id: id(), productId: saved.id, supermarketId: action.supermarketId, priceBani: action.priceBani!, salePriceBani: action.salePriceBani!,
+        ...(brand ? { brand } : {}) }] };
     }
   } else if (action.type === "price") {
     offer(action.offerId); prices(action.priceBani, action.salePriceBani);
-    book = { ...book, offers: book.offers.map((item) => item.id === action.offerId ? { ...item, priceBani: action.priceBani, salePriceBani: action.salePriceBani } : item) };
+    // Updating price can also replace or clear this offer's optional brand.
+    const brand = action.brand?.trim();
+    book = { ...book, offers: book.offers.map((item) => item.id === action.offerId ? { ...item, priceBani: action.priceBani, salePriceBani: action.salePriceBani,
+      ...(action.brand === undefined ? {} : brand ? { brand } : { brand: undefined }) } : item) };
   } else if (action.type === "addToList") {
     const saved = product(action.productId, "");
     if (book.items.some((item) => !item.bought && item.productId === saved.id)) throw new Error("This product is already on the shopping list.");
@@ -245,7 +254,7 @@ export function applyShoppingAction(current: ShoppingBook, action: ShoppingActio
 }
 
 // Importing the same backup is idempotent; stock amounts are replaced by ID rather than added twice.
-export function mergeShoppingBook(current: ShoppingBook, incoming: ShoppingBook | undefined, preserveListQuantity = false, preserveStockExpiry = false): ShoppingBook {
+export function mergeShoppingBook(current: ShoppingBook, incoming: ShoppingBook | undefined, preserveListQuantity = false, preserveStockExpiry = false, preserveOfferBrand = false): ShoppingBook {
   const local = parseShoppingBook(current);
   if (!incoming) return local;
   const imported = parseShoppingBook(incoming);
@@ -266,10 +275,15 @@ export function mergeShoppingBook(current: ShoppingBook, incoming: ShoppingBook 
     const existing = local.stock.find((saved) => saved.id === item.id);
     return preserveStockExpiry && existing ? { ...item, expiryDate: existing.expiryDate } : item;
   });
+  // A backup from before brands existed cannot erase a local brand on the same store offer.
+  const offers = imported.offers.map((item) => {
+    const existing = local.offers.find((saved) => saved.id === item.id);
+    return preserveOfferBrand && existing?.brand ? { ...item, brand: existing.brand } : item;
+  });
   const stickyArchive = <T extends { id: string; archived?: true }>(saved: T[], importedItems: T[]) => merge(saved, importedItems).map((item) =>
     saved.find((localItem) => localItem.id === item.id && localItem.archived) ?? item);
   const mergedProducts = merge(local.products, products);
   return parseShoppingBook({ products: mergedProducts, supermarkets: stickyArchive(local.supermarkets, imported.supermarkets),
-    offers: merge(local.offers, imported.offers), items: merge(local.items, items).filter((item) => item.bought || !mergedProducts.some((product) => product.id === item.productId && product.archived)),
+    offers: merge(local.offers, offers), items: merge(local.items, items).filter((item) => item.bought || !mergedProducts.some((product) => product.id === item.productId && product.archived)),
     locations: stickyArchive(local.locations, imported.locations), stock: merge(local.stock, stock) });
 }

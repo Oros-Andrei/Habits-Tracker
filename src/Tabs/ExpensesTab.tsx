@@ -18,7 +18,7 @@ type ExpensesTabProps = { entries: TrackerEntry[]; book: ExpenseBook; onUpdate: 
   onDelete: (kind: SavedItemKind, id: string) => Promise<void> };
 type Editor = { mode: ExpenseEditorMode; source?: IncomeSource; categoryId?: string; expenseId?: string; recordId?: string; loanId?: string };
 // Reuse the same balance card for recurring income, extra income, and the separate Savings account.
-type BudgetCard = { label: string; value: number; note: string; source?: IncomeSource; action?: Editor; actionLabel?: string };
+type BudgetCard = { label: string; value: number; note: string; source?: IncomeSource; action?: Editor; actionLabel?: string; addAction?: Editor };
 
 // One selected month drives budgets, the payment list, calendar, and category pie on both platforms.
 export function ExpensesTab({ entries, book, onUpdate, onDelete }: ExpensesTabProps) {
@@ -95,12 +95,14 @@ export function ExpensesTab({ entries, book, onUpdate, onDelete }: ExpensesTabPr
   // Use neutral product descriptions for the separate income and Savings cards.
   const accountCards: BudgetCard[] = [
     { label: "Extra income", value: summary.extraIncome, note: "Other income received this month.", action: { mode: "extraIncome" }, actionLabel: "Add extra income" },
-    { label: "Savings", value: summary.savings, note: "Funds reserved for future expenses.", action: { mode: "savings" }, actionLabel: "Set savings balance" },
+    { label: "Savings", value: summary.savings, note: "Funds reserved for future expenses.", action: { mode: "savings" }, actionLabel: "Set savings balance", addAction: { mode: "addSavings" } },
   ];
   // Reuse the same income values and controls inside Android's collapsible balance panel.
   const budgetCard = (card: BudgetCard) => <View key={card.label} style={[styles.budget, SOFT_SHADOW, android && styles.androidBudget]}>
     <View style={styles.cardHeading}><Text style={[styles.cardTitle, android && styles.androidCardTitle]}>{card.label}</Text>
       {card.source ? <View style={styles.optionsAnchor}><Button icon="options" iconOnly label={`Set ${card.label.toLowerCase()}`} onPress={() => open({ mode: "income", source: card.source })} variant="secondary" /></View> : null}
+      {/* Keep a direct deposit control beside the existing Savings balance editor. */}
+      {card.addAction ? <View style={styles.optionsAnchor}><Button icon="add" iconOnly label="Add to savings" onPress={() => open(card.addAction!)} variant="secondary" /></View> : null}
       {card.action ? <View style={styles.optionsAnchor}><Button icon={card.action.mode === "extraIncome" ? "add" : "options"} iconOnly
         label={card.actionLabel!} onPress={() => open(card.action!)} variant="secondary" /></View> : null}
     </View>
@@ -146,7 +148,7 @@ export function ExpensesTab({ entries, book, onUpdate, onDelete }: ExpensesTabPr
         { kind: "loan", label: "Loan", items: book.loans.filter((item) => !item.archived).map((item) => ({ id: item.id, label: item.name })) },
       ]} onClose={() => setDeleteVisible(false)} onDelete={onDelete} /> : null}
       {editor ? <ExpenseEditorModal mode={editor.mode} entries={entries} book={book}
-        date={["savings", "loan", "repayLoan"].includes(editor.mode) ? new Date() : selectedDate} source={editor.source}
+        date={["savings", "addSavings", "loan", "repayLoan"].includes(editor.mode) ? new Date() : selectedDate} source={editor.source}
         initialCategoryId={editor.categoryId} initialExpenseId={editor.expenseId} recordId={editor.recordId} loanId={editor.loanId} onSave={onUpdate} onClose={() => setEditor(undefined)} /> : null}
       {/* Suspend the list during removal confirmation, then return to its refreshed history. */}
       {showPayments && !editor ? <TrackerDialog title={`Payments · ${monthDate.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}`}

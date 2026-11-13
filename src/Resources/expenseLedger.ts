@@ -243,6 +243,10 @@ export function applyExpenseAction(current: TrackerSnapshot, action: ExpenseActi
     amount(action.amountBani, true);
     const difference = action.amountBani - savingsBalance(book, today);
     if (difference) book = { ...book, savingsAdjustments: [...(book.savingsAdjustments ?? []), { id: id(), date: today, amountBani: difference }] };
+  } else if (action.type === "addSavings") {
+    // A deposit is a separate dated adjustment, so it adds to the running Savings balance.
+    amount(action.amountBani);
+    book = { ...book, savingsAdjustments: [...(book.savingsAdjustments ?? []), { id: id(), date: today, amountBani: action.amountBani }] };
   } else if (action.type === "createLoan") {
     amount(action.amountBani); dated(action.date);
     if (!action.name.trim()) throw new Error("Enter a loan name.");

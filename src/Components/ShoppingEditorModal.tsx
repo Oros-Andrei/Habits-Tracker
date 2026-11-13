@@ -38,6 +38,8 @@ export function ShoppingEditorModal({ editor, book, onSave, onClose }: Props) {
   const [hasExpiry, setHasExpiry] = useState(!!initialStock?.expiryDate);
   const [expiryDate, setExpiryDate] = useState(() => initialStock?.expiryDate ? new Date(`${initialStock.expiryDate}T12:00:00`) : new Date());
   const [price, setPrice] = useState(initialOffer ? (initialOffer.priceBani / 100).toFixed(2) : "");
+  // Brand belongs to the supermarket offer and can differ across stores.
+  const [brand, setBrand] = useState(initialOffer?.brand ?? "");
   const [onSale, setOnSale] = useState(initialOffer?.salePriceBani != null);
   const [salePrice, setSalePrice] = useState(initialOffer?.salePriceBani != null ? (initialOffer.salePriceBani / 100).toFixed(2) : "");
   const [addInventory, setAddInventory] = useState(false);
@@ -87,8 +89,8 @@ export function ShoppingEditorModal({ editor, book, onSave, onClose }: Props) {
       if (mode === "supermarket" || mode === "location") action = { type: mode, name };
       else if (mode === "product") action = { type: "product", name };
       else if (mode === "offer") action = { type: "product", productId: productId === "" ? undefined : productId, name, supermarketId: supermarketId!,
-        priceBani: parseLei(price), salePriceBani: onSale ? parseLei(salePrice) : null };
-      else if (mode === "price") action = { type: "price", offerId: editor.offerId!, priceBani: parseLei(price), salePriceBani: onSale ? parseLei(salePrice) : null };
+        priceBani: parseLei(price), salePriceBani: onSale ? parseLei(salePrice) : null, brand };
+      else if (mode === "price") action = { type: "price", offerId: editor.offerId!, priceBani: parseLei(price), salePriceBani: onSale ? parseLei(salePrice) : null, brand };
       else if (mode === "addToList") action = { type: "addToList", productId, ...(listQuantity ? { quantity: listQuantity } : {}) };
       else if (mode === "removeFromList") action = { type: "removeFromList", itemId: itemId! };
       else if (mode === "addStock") action = { type: "addStock", productId: productId === "" ? undefined : productId, name,
@@ -103,7 +105,7 @@ export function ShoppingEditorModal({ editor, book, onSave, onClose }: Props) {
       setSuccess(mode === "supermarket" ? `Supermarket added: ${name.trim()}.` : mode === "location" ? `Inventory location added: ${name.trim()}.`
         : mode === "product" ? "Product saved." : mode === "offer" ? "Supermarket price saved." : mode === "price" ? "Product price updated." : mode === "addStock" ? "Quantity added to inventory." : "Inventory item updated.");
       if (["supermarket", "location", "product", "offer", "addStock"].includes(mode)) setName("");
-      if (mode === "offer") { setPrice(""); setSalePrice(""); }
+      if (mode === "offer") { setPrice(""); setSalePrice(""); setBrand(""); }
       // Reset the optional date between additions so the next product does not inherit it.
       if (mode === "addStock") { setQuantity(""); setHasExpiry(false); setExpiryDate(new Date()); }
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not save this change. Please try again."); }
@@ -133,6 +135,8 @@ export function ShoppingEditorModal({ editor, book, onSave, onClose }: Props) {
     </> : null}
     {mode === "price" && initialOffer ? <Text style={styles.note}>{productName(initialOffer.productId)} · {supermarketName(initialOffer.supermarketId)}</Text> : null}
     {pricing ? <>
+      {/* Use the shared field for an optional store-specific brand beside the existing price controls. */}
+      <TextBox disabled={saving} label="Brand (optional)" value={brand} onChangeText={(value) => { setBrand(value); setSuccess(""); }} placeholder="e.g. Zuzu" />
       <TextBox disabled={saving} label="Regular price (lei)" value={price} onChangeText={(value) => { setPrice(value); setSuccess(""); }} placeholder="0,00" />
       <View style={styles.checkboxRow}><Button checked={onSale} disabled={saving} label="Include sale price" onPress={() => setOnSale((value) => !value)} /><Text style={styles.note}>Include sale price</Text></View>
       {onSale ? <TextBox disabled={saving} label="Sale price (lei)" value={salePrice} onChangeText={(value) => { setSalePrice(value); setSuccess(""); }} placeholder="0,00" /> : null}

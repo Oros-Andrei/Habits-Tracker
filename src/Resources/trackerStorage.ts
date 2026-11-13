@@ -10,7 +10,7 @@ const HABIT_TRACKING_FIELDS = [["goodHabitTracking", "goodHabit"], ["badHabitTra
 export type TrackerBackup = {
   app: "habits-tracker";
   // New data formats must be rejected by older apps rather than silently discarded.
-  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
+  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
   exportedAt: string;
   entries: TrackerEntry[];
   expenses?: ExpenseBook;
@@ -190,13 +190,13 @@ export function archiveSavedItem(current: TrackerSnapshot, kind: SavedItemKind, 
   } };
 }
 
-// Version 14 retains archived definitions and their historical links in portable backups.
+// Version 15 also retains supermarket-specific brands in portable backups.
 export function parseTrackerBackup(value: unknown): TrackerBackup {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("The selected file is not a valid Habits Tracker backup.");
   }
   const backup = value as Partial<TrackerBackup>;
-  if (backup.app !== "habits-tracker" || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].includes(backup.formatVersion as number) ||
+  if (backup.app !== "habits-tracker" || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].includes(backup.formatVersion as number) ||
       typeof backup.exportedAt !== "string") {
     throw new Error("This is not a supported Habits Tracker backup.");
   }
@@ -267,7 +267,9 @@ export function mergeTrackerSnapshot(current: TrackerSnapshot, incoming: Tracker
     ...(item.type === "expenseType" ? { expenseCategoryId: null, monthlyExpense: null } : {}),
   });
   // Old backups preserve newer quantities/dates; matching imported stock still replaces its quantity.
-  const shopping = mergeShoppingBook(current.shopping, incoming.formatVersion >= 8 ? incoming.shopping : undefined, incoming.formatVersion < 11, incoming.formatVersion < 13);
+  // Older backups have no offer brand field, so keep a matching local brand when importing them.
+  const shopping = mergeShoppingBook(current.shopping, incoming.formatVersion >= 8 ? incoming.shopping : undefined,
+    incoming.formatVersion < 11, incoming.formatVersion < 13, incoming.formatVersion < 15);
   if (!incoming.expenses) return { entries, expenses: parseExpenseBook(current.expenses, entries), shopping };
   const merge = <T extends { id: string }>(local: T[], imported: T[]): T[] => [...new Map([...local, ...imported].map((item) => [item.id, item])).values()];
   const categories = merge(current.expenses.categories, incoming.expenses.categories).map((item) =>

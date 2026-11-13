@@ -75,7 +75,8 @@ export type StockUnit = "bottles" | "cans" | "units" | "grams";
 export type ShoppingQuantity = { amountMilli: number; unit: "grams" | "units" };
 export type ShoppingProduct = { id: string; name: string; quantity?: ShoppingQuantity; archived?: true };
 export type Supermarket = { id: string; name: string; archived?: true };
-export type ProductOffer = { id: string; productId: string; supermarketId: string; priceBani: number; salePriceBani: number | null };
+// A supermarket may carry a different brand for the same generic saved product.
+export type ProductOffer = { id: string; productId: string; supermarketId: string; priceBani: number; salePriceBani: number | null; brand?: string };
 export type InventoryLocation = { id: string; name: string; archived?: true };
 // Deletion targets definitions only; dated history retains its original IDs and names.
 export type SavedItemKind = TrackerEntryType | "expenseCategory" | "loan" | "product" | "supermarket" | "location";
@@ -89,8 +90,8 @@ export type ShoppingBook = { products: ShoppingProduct[]; supermarkets: Supermar
   items: ShoppingItem[]; locations: InventoryLocation[]; stock: InventoryStock[] };
 export type ShoppingAction =
   | { type: "supermarket" | "location"; name: string }
-  | { type: "product"; productId?: string; name: string; supermarketId?: string; priceBani?: number; salePriceBani?: number | null }
-  | { type: "price"; offerId: string; priceBani: number; salePriceBani: number | null }
+  | { type: "product"; productId?: string; name: string; supermarketId?: string; priceBani?: number; salePriceBani?: number | null; brand?: string }
+  | { type: "price"; offerId: string; priceBani: number; salePriceBani: number | null; brand?: string }
   | { type: "addToList"; productId: string; quantity?: ShoppingQuantity }
   | { type: "removeFromList"; itemId: string }
   // Omitted expiry keeps an existing date; explicit null clears it when editing inventory.
@@ -115,6 +116,8 @@ export type ExpenseAction =
   // Loan repayments stay outside expense records and never deduct from a funding source.
   | { type: "extraIncome"; date: string; amountBani: number }
   | { type: "setSavings"; amountBani: number }
+  // A positive deposit adds to Savings without replacing its current balance.
+  | { type: "addSavings"; amountBani: number }
   | { type: "createLoan"; name: string; date: string; amountBani: number }
   | { type: "repayLoan"; loanId: string; date: string; amountBani: number };
 
